@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Uploads
+uploads/
+backend/uploads/
+
+# Docker
+docker-compose.override.yml
+
+# Testing
+.coverage
+.tox/
+
+# Misc
+*.pem
+.vercel
+.netlify
