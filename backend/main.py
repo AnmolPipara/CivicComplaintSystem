@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,9 +10,7 @@ import os
 from db.session import engine
 from auth.router import router as auth_router
 from complaint.router import router as complaint_router
-from priority_engine.router import router as priority_router
 from admin.router import router as admin_router
-from notification.router import router as notification_router
 
 
 @asynccontextmanager
@@ -18,20 +19,6 @@ async def lifespan(app: FastAPI):
     import models  # Ensure models are loaded before create_all
     models.Base.metadata.create_all(bind=engine)
     print("Database tables created")
-    
-    # Initialize location trie with existing locations
-    from db.session import SessionLocal
-    from models import Location
-    from priority_engine.engine import get_location_trie
-    
-    db = SessionLocal()
-    try:
-        locations = db.query(Location).all()
-        trie = get_location_trie()
-        trie.build_from_locations(locations)
-        print(f"Location trie built with {len(locations)} locations")
-    finally:
-        db.close()
     
     yield
     
@@ -58,9 +45,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(complaint_router)
-app.include_router(priority_router)
 app.include_router(admin_router)
-app.include_router(notification_router)
 
 
 # Health check

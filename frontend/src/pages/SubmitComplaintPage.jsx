@@ -1,58 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { complaintAPI } from '../services/api'
 import { useForm } from '../hooks/useForm'
-import { Button, Input, Textarea, Select, Card, CardContent, Alert, Badge } from '../components/UI'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
-import 'leaflet/dist/leaflet.css'
-import { MapPin, Camera, X, Loader2, CheckCircle2, ArrowRight } from 'lucide-react'
+import { Button, Input, Textarea, Card, CardContent, Alert, Badge } from '../components/UI'
+import { Camera, X, CheckCircle2, ArrowRight } from 'lucide-react'
 import { classNames } from '../utils/helpers'
-
-// Default location (Mumbai)
-const DEFAULT_CENTER = [19.0760, 72.8777]
-const DEFAULT_ZOOM = 12
+import { MapPicker } from '../components/MapPicker'
 
 const CATEGORIES = [
-  { value: 'pothole', label: 'Pothole / Road Damage', icon: 'road' },
-  { value: 'garbage', label: 'Garbage / Waste', icon: 'trash-2' },
-  { value: 'water_leakage', label: 'Water Leakage', icon: 'droplets' },
-  { value: 'streetlight', label: 'Streetlight Issue', icon: 'lamp' },
-  { value: 'sewage_overflow', label: 'Sewage Overflow', icon: 'alert-triangle' },
-  { value: 'traffic_signal', label: 'Traffic Signal', icon: 'traffic-light' },
-  { value: 'footpath', label: 'Footpath / Sidewalk', icon: 'footprints' },
-  { value: 'drainage', label: 'Drainage / Waterlogging', icon: 'wind' },
+  { value: 1, label: 'Pothole / Road Damage', icon: 'road' },
+  { value: 2, label: 'Garbage / Waste', icon: 'trash-2' },
+  { value: 3, label: 'Water Leakage', icon: 'droplets' },
+  { value: 4, label: 'Streetlight Issue', icon: 'lamp' },
+  { value: 5, label: 'Sewage Overflow', icon: 'alert-triangle' },
+  { value: 6, label: 'Traffic Signal', icon: 'traffic-light' },
+  { value: 7, label: 'Footpath / Sidewalk', icon: 'footprints' },
+  { value: 8, label: 'Drainage / Waterlogging', icon: 'wind' },
 ]
-
-// Fix Leaflet marker icon issue
-import L from 'leaflet'
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
 
 export function SubmitComplaintPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const [selectedLocation, setSelectedLocation] = useState(null)
-  const [locationSearch, setLocationSearch] = useState('')
-  const [locationSuggestions, setLocationSuggestions] = useState([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [previewImages, setPreviewImages] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
-  const [mapKey, setMapKey] = useState(0)
   const fileInputRef = useRef(null)
-  const locationInputRef = useRef(null)
 
   const { values, errors, handleChange, handleBlur, handleSubmit, setFieldValue } = useForm({
     initialValues: {
       description: '',
       category_id: '',
+      location: '',
+      latitude: null,
+      longitude: null,
       evidence_files: [],
     },
     validate: (values) => {
@@ -60,7 +42,7 @@ export function SubmitComplaintPage() {
       if (!values.description.trim()) errs.description = 'Description is required'
       else if (values.description.length < 20) errs.description = 'Description must be at least 20 characters'
       if (!values.category_id) errs.category_id = 'Please select a category'
-      if (!selectedLocation) errs.location = 'Please select a location on the map'
+      if (!values.location.trim()) errs.location = 'Please enter a location'
       return errs
     },
     onSubmit: async (values) => {
@@ -70,113 +52,31 @@ export function SubmitComplaintPage() {
         const formData = new FormData()
         formData.append('description', values.description)
         formData.append('category_id', values.category_id)
-        formData.append('latitude', selectedLocation.lat.toString())
-        formData.append('longitude', selectedLocation.lng.toString())
-        if (selectedLocation.address) formData.append('address', selectedLocation.address)
-        if (selectedLocation.landmark) formData.append('landmark', selectedLocation.landmark)
-        if (selectedLocation.area_name) formData.append('area_name', selectedLocation.area_name)
-        if (selectedLocation.city) formData.append('city', selectedLocation.city)
-        if (selectedLocation.state) formData.append('state', selectedLocation.state)
-        if (selectedLocation.pincode) formData.append('pincode', selectedLocation.pincode)
+        formData.append('location', values.location)
+        if (values.latitude && values.longitude) {
+          formData.append('latitude', values.latitude)
+          formData.append('longitude', values.longitude)
+        }
         
         previewImages.forEach((file) => {
-          formData.append('evidence_files', file)
+          formData.append('evidence_files', file.file)
         })
 
         await complaintAPI.create(formData)
         setSuccess(true)
         setTimeout(() => navigate('/dashboard'), 2000)
       } catch (err) {
-        setError(err.response?.data?.detail || 'Failed to submit complaint. Please try again.')
+        const detail = err.response?.data?.detail
+        if (Array.isArray(detail)) {
+          setError(detail.map(e => `${e.loc?.join('.') || 'Error'}: ${e.msg}`).join(' | '))
+        } else {
+          setError(detail || 'Failed to submit complaint. Please try again.')
+        }
       } finally {
         setSubmitting(false)
       }
     },
   })
-
-  const handleMapClick = (e) => {
-    const { lat, lng } = e.latlng
-    reverseGeocode(lat, lng)
-  }
-
-  const reverseGeocode = async (lat, lng) => {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`
-      )
-      const data = await response.json()
-      
-      const address = data.display_name || ''
-      const area = data.address?.suburb || data.address?.neighbourhood || data.address?.quarter || ''
-      const landmark = data.address?.amenity || data.address?.tourism || data.address?.landmark || ''
-      const city = data.address?.city || data.address?.town || data.address?.village || 'Mumbai'
-      const state = data.address?.state || 'Maharashtra'
-      const pincode = data.address?.postcode || ''
-      
-      setSelectedLocation({ lat, lng, address, area_name: area, landmark, city, state, pincode })
-      setLocationSearch(address.split(',')[0])
-      setShowSuggestions(false)
-      setMapKey((k) => k + 1) // Force map re-render
-    } catch (err) {
-      console.error('Reverse geocode failed:', err)
-      setSelectedLocation({ lat, lng, address: `${lat.toFixed(4)}, ${lng.toFixed(4)}` })
-    }
-  }
-
-  const searchLocations = async (query) => {
-    if (!query || query.length < 2) {
-      setLocationSuggestions([])
-      setShowSuggestions(false)
-      return
-    }
-    
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1&countrycodes=in`
-      )
-      const data = await response.json()
-      setLocationSuggestions(data)
-      setShowSuggestions(true)
-    } catch (err) {
-      console.error('Location search failed:', err)
-    }
-  }
-
-  const selectSuggestion = (place) => {
-    const lat = parseFloat(place.lat)
-    const lng = parseFloat(place.lon)
-    setSelectedLocation({
-      lat,
-      lng,
-      address: place.display_name,
-      area_name: place.address?.suburb || place.address?.neighbourhood || '',
-      landmark: place.address?.amenity || place.address?.tourism || '',
-      city: place.address?.city || place.address?.town || 'Mumbai',
-      state: place.address?.state || 'Maharashtra',
-      pincode: place.address?.postcode || '',
-    })
-    setLocationSearch(place.display_name.split(',')[0])
-    setShowSuggestions(false)
-    setMapKey((k) => k + 1)
-  }
-
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setError('Geolocation is not supported by your browser')
-      return
-    }
-    
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords
-        reverseGeocode(latitude, longitude)
-      },
-      (err) => {
-        setError('Unable to retrieve your location. Please enable location access or select manually.')
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    )
-  }
 
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files)
@@ -192,13 +92,11 @@ export function SubmitComplaintPage() {
     }))
     
     setPreviewImages((prev) => [...prev, ...newPreviews].slice(0, 5))
-    setFieldValue('evidence_files', [...values.evidence_files, ...validFiles])
     fileInputRef.current.value = ''
   }
 
   const removeImage = (index) => {
     setPreviewImages((prev) => prev.filter((_, i) => i !== index))
-    setFieldValue('evidence_files', values.evidence_files.filter((_, i) => i !== index))
   }
 
   if (success) {
@@ -209,7 +107,7 @@ export function SubmitComplaintPage() {
             <CheckCircle2 className="h-8 w-8 text-green-600" />
           </div>
           <h2 className="text-heading-md font-bold text-text-primary mb-2">Complaint Submitted!</h2>
-          <p className="text-body text-text-secondary">Your complaint has been received and is being prioritized.</p>
+          <p className="text-body text-text-secondary">Your complaint has been received and is being processed.</p>
           <Button onClick={() => navigate('/dashboard')} className="mt-6 w-full">
             View Dashboard
             <ArrowRight className="h-4 w-4" />
@@ -221,27 +119,6 @@ export function SubmitComplaintPage() {
 
   return (
     <div className="min-h-screen bg-surface-elevated">
-      {/* Progress Header */}
-      <div className="sticky top-16 z-30 bg-white/95 backdrop-blur-sm border-b border-border">
-        <div className="max-w-4xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between">
-            <h1 className="text-heading-sm font-semibold text-text-primary">New Complaint</h1>
-            <div className="flex items-center gap-4 text-body-sm">
-              <span className={classNames('px-2 py-0.5 rounded-full text-caption font-medium', 
-                !selectedLocation ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-              )}>
-                {selectedLocation ? 'Location Set' : 'Location Required'}
-              </span>
-              <span className={classNames('px-2 py-0.5 rounded-full text-caption font-medium',
-                !values.category_id ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
-              )}>
-                {values.category_id ? 'Category Selected' : 'Category Required'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="max-w-4xl mx-auto px-4 py-6">
         {error && (
           <Alert variant="danger" className="mb-6" dismissible onClose={() => setError('')}>
@@ -288,107 +165,34 @@ export function SubmitComplaintPage() {
             </CardContent>
           </Card>
 
-          {/* Step 2: Location Selection */}
+          {/* Step 2: Location */}
           <Card>
             <CardContent className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-heading-sm font-semibold text-text-primary">Where is the issue?</h2>
-                <Button variant="secondary" size="sm" type="button" onClick={useCurrentLocation}>
-                  <MapPin className="h-4 w-4" />
-                  Use My Location
-                </Button>
-              </div>
-
-              {/* Location Search */}
-              <div className="relative mb-4">
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-text-muted" />
-                  <input
-                    ref={locationInputRef}
-                    type="text"
-                    value={locationSearch}
-                    onChange={(e) => {
-                      setLocationSearch(e.target.value)
-                      searchLocations(e.target.value)
-                    }}
-                    onFocus={() => locationSearch.length >= 2 && setShowSuggestions(true)}
-                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                    placeholder="Search for a place, landmark, or address..."
-                    className="input pl-10"
-                    aria-label="Search location"
-                    autoComplete="off"
+              <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Where is the issue?</h2>
+              <div className="space-y-4">
+                <Input
+                  label="Location Description"
+                  name="location"
+                  value={values.location}
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  error={errors.location}
+                  placeholder="Enter the location details (e.g. Near Central Park, Main Street)"
+                />
+                
+                <div>
+                  <label className="block text-body-sm font-medium text-text-secondary mb-1">
+                    Pinpoint on Map (Optional)
+                  </label>
+                  <MapPicker 
+                    value={{ lat: values.latitude, lng: values.longitude }} 
+                    onChange={(pos) => {
+                      setFieldValue('latitude', pos.lat);
+                      setFieldValue('longitude', pos.lng);
+                    }} 
                   />
                 </div>
-                
-                {showSuggestions && locationSuggestions.length > 0 && (
-                  <div className="absolute z-50 w-full mt-1 bg-white rounded-card shadow-elevated border border-border overflow-hidden">
-                    {locationSuggestions.map((place) => (
-                      <button
-                        key={place.place_id}
-                        type="button"
-                        onClick={() => selectSuggestion(place)}
-                        className="w-full px-4 py-3 text-left hover:bg-surface-hover transition-colors border-b border-border last:border-0"
-                      >
-                        <p className="text-body-sm font-medium text-text-primary">{place.display_name.split(',')[0]}</p>
-                        <p className="text-caption text-text-muted truncate">{place.display_name}</p>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
-
-              {/* Map */}
-              <div className="relative rounded-card overflow-hidden border border-border" style={{ height: '350px' }}>
-                <MapContainer
-                  key={mapKey}
-                  center={selectedLocation ? [selectedLocation.lat, selectedLocation.lng] : DEFAULT_CENTER}
-                  zoom={selectedLocation ? 16 : DEFAULT_ZOOM}
-                  scrollWheelZoom={true}
-                  onClick={handleMapClick}
-                  className="h-full w-full"
-                >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                  {selectedLocation && (
-                    <Marker position={[selectedLocation.lat, selectedLocation.lng]}>
-                      <Popup>
-                        <div className="text-body-sm">
-                          <p className="font-medium">{selectedLocation.area_name || selectedLocation.address?.split(',')[0]}</p>
-                          <p className="text-text-muted truncate max-w-[200px]">{selectedLocation.address}</p>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  )}
-                </MapContainer>
-                
-                {!selectedLocation && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm pointer-events-none">
-                    <div className="text-center p-4">
-                      <MapPin className="h-12 w-12 text-text-muted mx-auto mb-3" />
-                      <p className="text-body text-text-secondary">Click on the map to select location</p>
-                      <p className="text-caption text-text-muted mt-1">Or use "Use My Location" button</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {selectedLocation && (
-                <div className="mt-4 p-3 bg-surface-elevated rounded-button border border-border">
-                  <p className="text-body-sm font-medium text-text-primary">Selected Location</p>
-                  <p className="text-caption text-text-muted mt-1">{selectedLocation.address}</p>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {selectedLocation.area_name && <Badge variant="info">{selectedLocation.area_name}</Badge>}
-                    {selectedLocation.landmark && <Badge variant="primary">{selectedLocation.landmark}</Badge>}
-                    <Badge variant="default">{selectedLocation.city}, {selectedLocation.state}</Badge>
-                  </div>
-                </div>
-              )}
-
-              {errors.location && (
-                <p className="mt-2 text-body-sm text-red-600" role="alert">{errors.location}</p>
-              )}
             </CardContent>
           </Card>
 

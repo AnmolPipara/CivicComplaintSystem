@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { complaintAPI } from '../services/api'
-import { Button, Card, CardContent, Badge, PriorityBadge, StatusBadge, EmptyState, LoadingState, Skeleton } from '../components/UI'
-import { Plus, FileText, Clock, MapPin, ChevronRight, RefreshCw, Filter, X, Flag, UserCheck, Loader, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
-import { formatRelativeTime, formatDate, getStatusConfig, classNames, truncate } from '../utils/helpers'
+import { Button, Card, CardContent, StatusBadge, EmptyState, LoadingState, Skeleton } from '../components/UI'
+import { Plus, FileText, Clock, MapPin, ChevronRight, RefreshCw, Filter, X, ThumbsUp, Loader, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { formatRelativeTime, getStatusConfig, classNames, truncate } from '../utils/helpers'
 
-const STATUS_ORDER = ['submitted', 'prioritized', 'assigned', 'in_progress', 'resolved', 'rejected']
+const STATUS_ORDER = ['pending', 'working', 'completed']
 
 export function CitizenDashboard() {
   const { user } = useAuth()
@@ -14,7 +14,7 @@ export function CitizenDashboard() {
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [filters, setFilters] = useState({ status: '', priority: '' })
+  const [filters, setFilters] = useState({ status: '' })
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const pageSize = 10
@@ -43,11 +43,11 @@ export function CitizenDashboard() {
   }
 
   const clearFilters = () => {
-    setFilters({ status: '', priority: '' })
+    setFilters({ status: '' })
     setPage(1)
   }
 
-  const hasActiveFilters = filters.status || filters.priority
+  const hasActiveFilters = filters.status
 
   if (loading && complaints.length === 0) {
     return (
@@ -74,8 +74,6 @@ export function CitizenDashboard() {
       </div>
     )
   }
-
-  const getStatusStep = (status) => STATUS_ORDER.indexOf(status)
 
   return (
     <div className="page-container">
@@ -115,17 +113,6 @@ export function CitizenDashboard() {
                     </option>
                   )
                 })}
-              </select>
-              <select
-                value={filters.priority}
-                onChange={(e) => handleFilterChange('priority', e.target.value)}
-                className="input w-auto px-3 py-2 text-body-sm"
-                aria-label="Filter by priority"
-              >
-                <option value="">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
               </select>
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -207,33 +194,37 @@ export function CitizenDashboard() {
 }
 
 function ComplaintCard({ complaint }) {
-  const config = getStatusConfig(complaint.status)
-  const IconComponent = getIconComponent(config.icon)
-  const statusStep = STATUS_ORDER.indexOf(complaint.status)
+  const config = getStatusConfig(complaint.status || 'pending')
+  const statusStep = STATUS_ORDER.indexOf(complaint.status || 'pending')
   const totalSteps = STATUS_ORDER.length
   const progress = ((statusStep + 1) / totalSteps) * 100
 
   return (
     <Card className="overflow-hidden hover:shadow-card-hover transition-shadow">
       <div className="p-4">
-        {/* Header with priority and status */}
+        {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
             <h3 className="text-body font-semibold text-text-primary line-clamp-1">
-              {complaint.category?.display_name || complaint.category_id}
+              {complaint.category?.display_name || 'General Complaint'}
             </h3>
             <p className="text-body-sm text-text-secondary mt-0.5 line-clamp-2">
               {truncate(complaint.description, 120)}
             </p>
           </div>
-          <PriorityBadge priority={complaint.priority} size="sm" />
+          <div className="flex flex-col items-end">
+            <span className="flex items-center text-primary-600 font-bold text-sm bg-primary-50 px-2 py-1 rounded">
+               <ThumbsUp className="w-4 h-4 mr-1" />
+               {complaint.upvote_count || 0}
+            </span>
+          </div>
         </div>
 
         {/* Meta info */}
         <div className="flex flex-wrap items-center gap-3 text-body-sm text-text-secondary mb-3">
           <span className="flex items-center gap-1">
             <MapPin className="h-3.5 w-3.5" />
-            {complaint.location?.area_name || complaint.location?.address || 'Unknown location'}
+            {truncate(complaint.location, 25) || 'Unknown location'}
           </span>
           <span className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
@@ -254,7 +245,7 @@ function ComplaintCard({ complaint }) {
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            {STATUS_ORDER.slice(0, statusStep + 1).map((step, idx) => (
+            {STATUS_ORDER.map((step, idx) => (
               <div
                 key={step}
                 className={classNames(
@@ -287,21 +278,9 @@ function ComplaintCard({ complaint }) {
             View Details
             <ChevronRight className="h-3.5 w-3.5" />
           </Link>
-          <StatusBadge status={complaint.status} size="sm" />
+          <StatusBadge status={complaint.status || 'pending'} size="sm" />
         </div>
       </div>
     </Card>
   )
-}
-
-function getIconComponent(name) {
-  const icons = {
-    'file-text': FileText,
-    'flag': Flag,
-    'user-check': UserCheck,
-    'loader': Loader,
-    'check-circle-2': CheckCircle2,
-    'x-circle': XCircle,
-  }
-  return icons[name] || FileText
 }

@@ -54,7 +54,7 @@ async def register(
             preferred_notification_channels=citizen_profile.preferred_notification_channels if citizen_profile else "email,push"
         )
         db.add(profile)
-    elif user_data.role == UserRole.ADMIN:
+    elif user_data.role in [UserRole.ADMIN, UserRole.DEPARTMENT]:
         profile = Admin(
             user_id=user.id,
             department_id=admin_profile.department_id if admin_profile else None,

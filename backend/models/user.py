@@ -27,8 +27,6 @@ class User(Base):
     citizen_profile = relationship("Citizen", back_populates="user", uselist=False)
     admin_profile = relationship("Admin", back_populates="user", uselist=False)
     department_profile = relationship("Department", back_populates="user", uselist=False)
-    notifications = relationship("Notification", back_populates="recipient")
-
 
 class Citizen(Base):
     __tablename__ = "citizens"

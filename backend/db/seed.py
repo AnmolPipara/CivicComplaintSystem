@@ -3,6 +3,10 @@
 Seed script to populate initial data for development.
 Run with: python -m db.seed
 """
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from db.session import SessionLocal, engine, Base
 from models import (
     User, Citizen, Admin, Department, Category, Location,
@@ -213,100 +217,6 @@ def seed_database():
                 if dept:
                     # Note: We don't have a direct link from department to user in this model
                     pass
-        
-        # Create sample citizen
-        citizen_user = db.query(User).filter(User.email == "citizen@example.com").first()
-        if not citizen_user:
-            citizen_user = User(
-                email="citizen@example.com",
-                phone="+91-9876543211",
-                password_hash=get_password_hash(SEED_CITIZEN_PASSWORD),
-                full_name="Rahul Citizen",
-                role=UserRole.CITIZEN,
-                is_active=True
-            )
-            db.add(citizen_user)
-            db.flush()
-            
-            citizen_profile = Citizen(
-                user_id=citizen_user.id,
-                address="123 Main Street, Andheri West, Mumbai",
-                preferred_notification_channels="email,push"
-            )
-            db.add(citizen_profile)
-        
-        # Create sample locations
-        locations = [
-            Location(
-                latitude=19.1197,
-                longitude=72.8464,
-                address="Andheri West, Mumbai",
-                area_name="Andheri West",
-                landmark="Andheri Station",
-                city="Mumbai",
-                state="Maharashtra",
-                pincode="400058",
-                is_sensitive_zone=2,  # Near school
-                created_at=1700000000
-            ),
-            Location(
-                latitude=19.0760,
-                longitude=72.8777,
-                address="Bandra West, Mumbai",
-                area_name="Bandra West",
-                landmark="Bandra Fort",
-                city="Mumbai",
-                state="Maharashtra",
-                pincode="400050",
-                is_sensitive_zone=1,  # Near hospital
-                created_at=1700000000
-            ),
-            Location(
-                latitude=19.0176,
-                longitude=72.8562,
-                address="Dadar West, Mumbai",
-                area_name="Dadar West",
-                landmark="Dadar Station",
-                city="Mumbai",
-                state="Maharashtra",
-                pincode="400028",
-                is_sensitive_zone=3,  # High footfall
-                created_at=1700000000
-            ),
-            Location(
-                latitude=19.1097,
-                longitude=72.8333,
-                address="Juhu, Mumbai",
-                area_name="Juhu",
-                landmark="Juhu Beach",
-                city="Mumbai",
-                state="Maharashtra",
-                pincode="400049",
-                is_sensitive_zone=0,
-                created_at=1700000000
-            ),
-            Location(
-                latitude=19.1398,
-                longitude=72.9056,
-                address="Ghatkopar East, Mumbai",
-                area_name="Ghatkopar East",
-                landmark="Ghatkopar Station",
-                city="Mumbai",
-                state="Maharashtra",
-                pincode="400077",
-                is_sensitive_zone=2,  # Near school
-                created_at=1700000000
-            ),
-        ]
-        
-        for loc in locations:
-            existing = db.query(Location).filter(
-                Location.latitude == loc.latitude,
-                Location.longitude == loc.longitude
-            ).first()
-            if not existing:
-                db.add(loc)
-        
         db.commit()
         print("Database seeded successfully!")
         

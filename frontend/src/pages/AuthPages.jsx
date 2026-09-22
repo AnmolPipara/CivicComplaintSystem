@@ -20,7 +20,6 @@ export function LoginPage() {
       if (!values.email) errs.email = 'Email is required'
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) errs.email = 'Invalid email format'
       if (!values.password) errs.password = 'Password is required'
-      else if (values.password.length < 8) errs.password = 'Password must be at least 8 characters'
       return errs
     },
     onSubmit: async (values) => {
@@ -162,10 +161,6 @@ export function LoginPage() {
             </p>
           </CardContent>
         </Card>
-
-        <p className="mt-6 text-center text-caption text-text-muted">
-          Demo credentials: admin@city.gov / admin123 | citizen@example.com / citizen123
-        </p>
       </div>
     </div>
   )

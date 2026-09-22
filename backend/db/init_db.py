@@ -1,5 +1,5 @@
 from db.session import engine, Base
-from models import User, Citizen, Admin, Department, Category, Location, Complaint, Vote, Notification, Cluster, ComplaintStatusHistory
+from models import User, Citizen, Admin, Department, Category, Complaint, Vote, ComplaintStatusHistory
 
 
 def init_db():

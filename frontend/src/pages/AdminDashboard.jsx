@@ -3,22 +3,22 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { adminAPI, complaintAPI } from '../services/api'
 import { 
-  Card, CardContent, Badge, PriorityBadge, StatusBadge, Button, 
+  Card, CardContent, Badge, StatusBadge, Button, 
   Select, Input, Modal, Alert, EmptyState, LoadingState, Skeleton 
 } from '../components/UI'
 import {
   LayoutDashboard, FileText, Users, TrendingUp, AlertTriangle,
   Clock, CheckCircle2, Filter, X, MoreVertical, Edit, Trash2,
   ArrowUpDown, Download, BarChart3, Building2, MapPin, FolderKanban,
-  Settings, ChevronLeft, ChevronRight
+  Settings, ChevronLeft, ChevronRight, ThumbsUp
 } from 'lucide-react'
-import { formatDate, formatRelativeTime, getStatusConfig, classNames, truncate, formatNumber } from '../utils/helpers'
-import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts'
+import { formatRelativeTime, getStatusConfig, classNames, truncate, formatNumber } from '../utils/helpers'
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-const STATUS_ORDER = ['submitted', 'prioritized', 'assigned', 'in_progress', 'resolved', 'rejected']
+const STATUS_ORDER = ['pending', 'working', 'completed']
 
 export function AdminDashboard() {
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, isDepartment } = useAuth()
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [complaints, setComplaints] = useState([])
@@ -26,11 +26,10 @@ export function AdminDashboard() {
   const [error, setError] = useState(null)
   const [filters, setFilters] = useState({
     status: '',
-    priority: '',
     category_id: '',
     department_id: '',
     search: '',
-    sort_by: 'priority_score',
+    sort_by: 'upvote_count',
     sort_order: 'desc',
   })
   const [page, setPage] = useState(1)
@@ -43,6 +42,7 @@ export function AdminDashboard() {
   const [assignDeptId, setAssignDeptId] = useState('')
 
   const fetchStats = async () => {
+    if (!isAdmin) return;
     try {
       const response = await adminAPI.stats()
       setStats(response.data)
@@ -54,18 +54,27 @@ export function AdminDashboard() {
   const fetchComplaints = async () => {
     try {
       setLoading(true)
-      const params = { page, page_size: pageSize, ...filters }
-      const response = await adminAPI.complaints(params)
+      const params = { page, page_size: pageSize }
+      Object.entries(filters).forEach(([k, v]) => {
+        if (v !== '') params[k] = v
+      })
+      const response = isAdmin ? await adminAPI.complaints(params) : await complaintAPI.list(params)
       setComplaints(response.data.complaints)
       setTotal(response.data.total)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load complaints')
+      const detail = err.response?.data?.detail
+      if (Array.isArray(detail)) {
+        setError(detail.map(e => `${e.loc?.join('.') || 'Error'}: ${e.msg}`).join(' | '))
+      } else {
+        setError(detail || 'Failed to load complaints')
+      }
     } finally {
       setLoading(false)
     }
   }
 
   const fetchCategories = async () => {
+    if (!isAdmin) return;
     try {
       const response = await adminAPI.categories()
       setCategories(response.data)
@@ -75,6 +84,7 @@ export function AdminDashboard() {
   }
 
   const fetchDepartments = async () => {
+    if (!isAdmin) return;
     try {
       const response = await adminAPI.departments()
       setDepartments(response.data)
@@ -98,17 +108,16 @@ export function AdminDashboard() {
   const clearFilters = () => {
     setFilters({
       status: '',
-      priority: '',
       category_id: '',
       department_id: '',
       search: '',
-      sort_by: 'priority_score',
+      sort_by: 'upvote_count',
       sort_order: 'desc',
     })
     setPage(1)
   }
 
-  const hasActiveFilters = filters.status || filters.priority || filters.category_id || filters.department_id || filters.search
+  const hasActiveFilters = filters.status || filters.category_id || filters.department_id || filters.search
 
   const handleAssign = async (complaint) => {
     setSelectedComplaint(complaint)
@@ -121,7 +130,7 @@ export function AdminDashboard() {
     try {
       await adminAPI.assign(selectedComplaint.id, parseInt(assignDeptId))
       fetchComplaints()
-      fetchStats()
+      if (isAdmin) fetchStats()
       setShowAssignModal(false)
       setSelectedComplaint(null)
     } catch (err) {
@@ -129,29 +138,18 @@ export function AdminDashboard() {
     }
   }
 
-  const handleResolve = async (complaintId) => {
-    if (!window.confirm('Mark this complaint as resolved?')) return
+  const handleStatusUpdate = async (complaintId, status) => {
+    if (!window.confirm(`Mark this complaint as ${status}?`)) return
     try {
-      await adminAPI.resolve(complaintId)
+      await complaintAPI.update(complaintId, { status })
       fetchComplaints()
-      fetchStats()
+      if (isAdmin) fetchStats()
     } catch (err) {
-      console.error('Resolve failed:', err)
+      console.error('Status update failed:', err)
     }
   }
 
-  const handleUndo = async (complaintId) => {
-    if (!window.confirm('Undo the last action on this complaint?')) return
-    try {
-      await adminAPI.undo(complaintId)
-      fetchComplaints()
-      fetchStats()
-    } catch (err) {
-      console.error('Undo failed:', err)
-    }
-  }
-
-  if (!isAdmin) {
+  if (!isAdmin && !isDepartment) {
     return <div className="page-container">Access denied</div>
   }
 
@@ -168,16 +166,12 @@ export function AdminDashboard() {
             <Icon name="refresh" className="h-4 w-4" />
             Refresh
           </Button>
-          <Button variant="primary" onClick={() => navigate('/admin/reports')}>
-            <BarChart3 className="h-4 w-4" />
-            View Reports
-          </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
           <StatCard
             title="Open Complaints"
             value={stats.open_complaints}
@@ -186,15 +180,6 @@ export function AdminDashboard() {
             bgColor="bg-primary-50"
             trend={stats.resolved_this_week > 0 ? `+${stats.resolved_this_week} resolved this week` : null}
             trendColor="text-green-600"
-          />
-          <StatCard
-            title="High Priority"
-            value={stats.high_priority}
-            icon={AlertTriangle}
-            iconColor="text-red-500"
-            bgColor="bg-red-50"
-            trend="Requires immediate attention"
-            trendColor="text-red-600"
           />
           <StatCard
             title="Resolved This Week"
@@ -298,17 +283,6 @@ export function AdminDashboard() {
                 })}
               </select>
               <select
-                value={filters.priority}
-                onChange={(e) => handleFilterChange('priority', e.target.value)}
-                className="input w-auto"
-                aria-label="Filter by priority"
-              >
-                <option value="">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select
                 value={filters.category_id}
                 onChange={(e) => handleFilterChange('category_id', e.target.value)}
                 className="input w-auto"
@@ -319,26 +293,27 @@ export function AdminDashboard() {
                   <option key={cat.id} value={cat.id}>{cat.display_name}</option>
                 ))}
               </select>
-              <select
-                value={filters.department_id}
-                onChange={(e) => handleFilterChange('department_id', e.target.value)}
-                className="input w-auto"
-                aria-label="Filter by department"
-              >
-                <option value="">All Departments</option>
-                {departments.map((dept) => (
-                  <option key={dept.id} value={dept.id}>{dept.display_name}</option>
-                ))}
-              </select>
+              {isAdmin && (
+                <select
+                  value={filters.department_id}
+                  onChange={(e) => handleFilterChange('department_id', e.target.value)}
+                  className="input w-auto"
+                  aria-label="Filter by department"
+                >
+                  <option value="">All Departments</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>{dept.display_name}</option>
+                  ))}
+                </select>
+              )}
               <select
                 value={filters.sort_by}
                 onChange={(e) => handleFilterChange('sort_by', e.target.value)}
                 className="input w-auto"
                 aria-label="Sort by"
               >
-                <option value="priority_score">Priority Score</option>
-                <option value="created_at">Date Created</option>
                 <option value="upvote_count">Upvotes</option>
+                <option value="created_at">Date Created</option>
                 <option value="status">Status</option>
               </select>
               <select
@@ -400,7 +375,7 @@ export function AdminDashboard() {
                   <th className="pb-3 px-4">Complaint</th>
                   <th className="pb-3 px-4 hidden md:table-cell">Category</th>
                   <th className="pb-3 px-4 hidden lg:table-cell">Location</th>
-                  <th className="pb-3 px-4">Priority</th>
+                  <th className="pb-3 px-4">Upvotes</th>
                   <th className="pb-3 px-4">Status</th>
                   <th className="pb-3 px-4 hidden md:table-cell">Department</th>
                   <th className="pb-3 px-4">Submitted</th>
@@ -419,18 +394,21 @@ export function AdminDashboard() {
                       </div>
                     </td>
                     <td className="py-4 px-4 hidden md:table-cell">
-                      <Badge variant="primary">{complaint.category?.display_name}</Badge>
+                      <Badge variant="primary">{complaint.category?.display_name || 'General'}</Badge>
                     </td>
                     <td className="py-4 px-4 hidden lg:table-cell">
                       <p className="text-body-sm text-text-secondary max-w-xs truncate">
-                        {complaint.location?.area_name || complaint.location?.address || '—'}
+                        {complaint.location || '—'}
                       </p>
                     </td>
                     <td className="py-4 px-4">
-                      <PriorityBadge priority={complaint.priority} size="sm" />
+                      <span className="flex items-center text-primary-600 font-bold text-sm bg-primary-50 px-2 py-1 rounded w-fit">
+                         <ThumbsUp className="w-4 h-4 mr-1" />
+                         {complaint.upvote_count || 0}
+                      </span>
                     </td>
                     <td className="py-4 px-4">
-                      <StatusBadge status={complaint.status} size="sm" />
+                      <StatusBadge status={complaint.status || 'pending'} size="sm" />
                     </td>
                     <td className="py-4 px-4 hidden md:table-cell">
                       <span className="text-body-sm text-text-secondary">
@@ -443,25 +421,25 @@ export function AdminDashboard() {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/complaints/${complaint.id}`)}>
                           View
                         </Button>
-                        {complaint.status !== 'resolved' && complaint.status !== 'rejected' && (
+                        {complaint.status !== 'completed' && (
                           <>
-                            {!complaint.department_id && (
+                            {isAdmin && !complaint.department_id && (
                               <Button variant="secondary" size="sm" onClick={() => handleAssign(complaint)}>
                                 Assign
                               </Button>
                             )}
-                            {complaint.status === 'in_progress' && (
-                              <Button variant="success" size="sm" onClick={() => handleResolve(complaint.id)}>
-                                Resolve
+                            {(isAdmin || isDepartment) && complaint.status === 'pending' && (
+                              <Button variant="primary" size="sm" onClick={() => handleStatusUpdate(complaint.id, 'working')}>
+                                Start Work
                               </Button>
                             )}
-                            {complaint.status !== 'submitted' && (
-                              <Button variant="ghost" size="sm" onClick={() => handleUndo(complaint.id)}>
-                                Undo
+                            {(isAdmin || isDepartment) && complaint.status === 'working' && (
+                              <Button variant="success" size="sm" onClick={() => handleStatusUpdate(complaint.id, 'completed')}>
+                                Resolve
                               </Button>
                             )}
                           </>

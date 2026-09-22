@@ -1,5 +1,5 @@
 import React from 'react'
-import { classNames } from '../utils/helpers'
+import { classNames, getPriorityConfig, getStatusConfig } from '../utils/helpers'
 import { X } from 'lucide-react'
 
 export function Button({

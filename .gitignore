@@ -14,8 +14,11 @@ build/
 
 # Environment files
 .env
-.env.local
-.env.*.local
+.env.*
+.env*.local
+*.env
+!.env.example
+!backend/.env.example
 
 # IDE
 .vscode/

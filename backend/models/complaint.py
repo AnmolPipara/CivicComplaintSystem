@@ -1,23 +1,14 @@
 import enum
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey, Float, Boolean, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey, Float, Boolean, Index, JSON
 from sqlalchemy.orm import relationship
 from .base import Base
 
 
 class ComplaintStatus(str, enum.Enum):
-    SUBMITTED = "submitted"
-    PRIORITIZED = "prioritized"
-    ASSIGNED = "assigned"
-    IN_PROGRESS = "in_progress"
-    RESOLVED = "resolved"
-    REJECTED = "rejected"
-
-
-class PriorityLevel(str, enum.Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+    PENDING = "pending"
+    WORKING = "working"
+    COMPLETED = "completed"
 
 
 class Complaint(Base):
@@ -26,15 +17,15 @@ class Complaint(Base):
     id = Column(Integer, primary_key=True, index=True)
     citizen_id = Column(Integer, ForeignKey("citizens.id"), nullable=False, index=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False, index=True)
-    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False, index=True)
+    location = Column(String(255), nullable=False)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
     
     description = Column(Text, nullable=False)
-    status = Column(Enum(ComplaintStatus), default=ComplaintStatus.SUBMITTED, nullable=False, index=True)
-    priority = Column(Enum(PriorityLevel), default=PriorityLevel.LOW, nullable=False, index=True)
-    priority_score = Column(Float, default=0.0, nullable=False)
+    status = Column(Enum(ComplaintStatus), default=ComplaintStatus.PENDING, nullable=False, index=True)
     
-    evidence_urls = Column(Text, nullable=True)  # JSON array of URLs
+    evidence_urls = Column(JSON, nullable=True)  # JSON array of URLs
     upvote_count = Column(Integer, default=0, nullable=False)
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -46,16 +37,12 @@ class Complaint(Base):
     
     citizen = relationship("Citizen", back_populates="complaints")
     category = relationship("Category", back_populates="complaints")
-    location = relationship("Location", back_populates="complaints")
     department = relationship("Department", back_populates="complaints")
     votes = relationship("Vote", back_populates="complaint")
     status_history = relationship("ComplaintStatusHistory", back_populates="complaint", order_by="ComplaintStatusHistory.created_at")
-    notifications = relationship("Notification", back_populates="complaint")
-    cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True, index=True)
-    cluster = relationship("Cluster", back_populates="complaints")
 
     __table_args__ = (
-        Index("ix_complaints_status_priority_created", "status", "priority", "created_at"),
+        Index("ix_complaints_status_created", "status", "created_at"),
         Index("ix_complaints_citizen_status", "citizen_id", "status"),
     )
 

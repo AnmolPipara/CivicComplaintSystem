@@ -1,0 +1,16 @@
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS location VARCHAR(255);
+UPDATE complaints SET location = 'Default Location' WHERE location IS NULL;
+ALTER TABLE complaints ALTER COLUMN location SET NOT NULL;
+ALTER TABLE complaints DROP COLUMN IF EXISTS location_id CASCADE;
+ALTER TABLE complaints DROP COLUMN IF EXISTS cluster_id CASCADE;
+ALTER TABLE complaints DROP COLUMN IF EXISTS priority CASCADE;
+ALTER TABLE complaints DROP COLUMN IF EXISTS priority_score CASCADE;
+ALTER TABLE complaints ALTER COLUMN status TYPE VARCHAR;
+UPDATE complaints SET status = 'pending' WHERE status IN ('submitted', 'prioritized');
+UPDATE complaints SET status = 'working' WHERE status IN ('assigned', 'in_progress');
+UPDATE complaints SET status = 'completed' WHERE status IN ('resolved', 'rejected');
+ALTER TABLE complaint_status_history ALTER COLUMN previous_status TYPE VARCHAR;
+ALTER TABLE complaint_status_history ALTER COLUMN new_status TYPE VARCHAR;
+DROP TABLE IF EXISTS locations CASCADE;
+DROP TABLE IF EXISTS clusters CASCADE;
+DROP TABLE IF EXISTS notifications CASCADE;

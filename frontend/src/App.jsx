@@ -1,7 +1,38 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, Component } from 'react'
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import { Header } from './components/Layout'
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '20px', background: '#ffebee', color: '#c62828', minHeight: '100vh' }}>
+          <h2>Something went wrong in the React App.</h2>
+          <details style={{ whiteSpace: 'pre-wrap' }}>
+            <summary>Click for error details</summary>
+            {this.state.error && this.state.error.toString()}
+            <br />
+            {this.state.errorInfo && this.state.errorInfo.componentStack}
+          </details>
+        </div>
+      );
+    }
+    return this.props.children; 
+  }
+}
+
 import { 
   LoginPage, 
   RegisterPage 
@@ -10,9 +41,7 @@ import { CitizenDashboard } from './pages/CitizenDashboard'
 import { SubmitComplaintPage } from './pages/SubmitComplaintPage'
 import { ComplaintDetailPage } from './pages/ComplaintDetailPage'
 import { PublicFeedPage } from './pages/PublicFeedPage'
-import { NotificationsPage } from './pages/NotificationsPage'
 import { AdminDashboard } from './pages/AdminDashboard'
-import { ReportsPage } from './pages/ReportsPage'
 
 // Layout wrapper with header
 function MainLayout() {
@@ -93,102 +122,93 @@ function RootRedirect() {
 
 function App() {
   return (
-    <Routes>
-      {/* Public routes */}
-      <Route path="/login" element={
-        <PublicRoute>
-          <LoginPage />
-        </PublicRoute>
-      } />
-      <Route path="/register" element={
-        <PublicRoute>
-          <RegisterPage />
-        </PublicRoute>
-      } />
-      
-      {/* Protected routes with main layout */}
-      <Route element={<MainLayout />}>
-        {/* Citizen routes */}
-        <Route path="/dashboard" element={
-          <ProtectedRoute allowedRoles={['citizen']}>
-            <CitizenDashboard />
-          </ProtectedRoute>
+    <ErrorBoundary>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login" element={
+          <PublicRoute>
+            <LoginPage />
+          </PublicRoute>
         } />
-        <Route path="/submit" element={
-          <ProtectedRoute allowedRoles={['citizen']}>
-            <SubmitComplaintPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/feed" element={
-          <ProtectedRoute allowedRoles={['citizen']}>
-            <PublicFeedPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/complaint/:id" element={
-          <ProtectedRoute>
-            <ComplaintDetailPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/notifications" element={
-          <ProtectedRoute>
-            <NotificationsPage />
-          </ProtectedRoute>
+        <Route path="/register" element={
+          <PublicRoute>
+            <RegisterPage />
+          </PublicRoute>
         } />
         
-        {/* Admin routes */}
-        <Route path="/admin" element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <AdminDashboard />
-          </ProtectedRoute>
-        } />
-        <Route path="/admin/complaints/:id" element={
-          <ProtectedRoute allowedRoles={['admin', 'department']}>
-            <ComplaintDetailPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/admin/reports" element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <ReportsPage />
-          </ProtectedRoute>
-        } />
-        <Route path="/admin/*" element={
-          <ProtectedRoute allowedRoles={['admin']}>
-            <AdminDashboard />
-          </ProtectedRoute>
-        } />
+        {/* Protected routes with main layout */}
+        <Route element={<MainLayout />}>
+          {/* Citizen routes */}
+          <Route path="/dashboard" element={
+            <ProtectedRoute allowedRoles={['citizen']}>
+              <CitizenDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/submit" element={
+            <ProtectedRoute allowedRoles={['citizen']}>
+              <SubmitComplaintPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/feed" element={
+            <ProtectedRoute allowedRoles={['citizen']}>
+              <PublicFeedPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/complaint/:id" element={
+            <ProtectedRoute>
+              <ComplaintDetailPage />
+            </ProtectedRoute>
+          } />
+          {/* Admin routes */}
+          <Route path="/admin" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/complaints/:id" element={
+            <ProtectedRoute allowedRoles={['admin', 'department']}>
+              <ComplaintDetailPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/*" element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } />
+          
+          {/* Department routes */}
+          <Route path="/department" element={
+            <ProtectedRoute allowedRoles={['department', 'admin']}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/department/*" element={
+            <ProtectedRoute allowedRoles={['department', 'admin']}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          } />
+        </Route>
         
-        {/* Department routes */}
-        <Route path="/department" element={
-          <ProtectedRoute allowedRoles={['department', 'admin']}>
-            <AdminDashboard />
-          </ProtectedRoute>
-        } />
-        <Route path="/department/*" element={
-          <ProtectedRoute allowedRoles={['department', 'admin']}>
-            <AdminDashboard />
-          </ProtectedRoute>
-        } />
-      </Route>
-      
-      {/* Redirect root to dashboard or login */}
-      <Route path="/" element={<RootRedirect />} />
-      
-      {/* 404 */}
-      <Route path="*" element={
-        <div className="min-h-screen flex items-center justify-center bg-surface-elevated">
-          <div className="text-center">
-            <h1 className="text-heading-lg font-bold text-text-primary">Page Not Found</h1>
-            <p className="text-body text-text-secondary mt-2">The page you're looking for doesn't exist.</p>
-            <button 
-              onClick={() => window.history.back()}
-              className="btn-primary mt-4"
-            >
-              Go Back
-            </button>
+        {/* Redirect root to dashboard or login */}
+        <Route path="/" element={<RootRedirect />} />
+        
+        {/* 404 */}
+        <Route path="*" element={
+          <div className="min-h-screen flex items-center justify-center bg-surface-elevated">
+            <div className="text-center">
+              <h1 className="text-heading-lg font-bold text-text-primary">Page Not Found</h1>
+              <p className="text-body text-text-secondary mt-2">The page you're looking for doesn't exist.</p>
+              <button 
+                onClick={() => window.history.back()}
+                className="btn-primary mt-4"
+              >
+                Go Back
+              </button>
+            </div>
           </div>
-        </div>
-      } />
-    </Routes>
+        } />
+      </Routes>
+    </ErrorBoundary>
   )
 }
 

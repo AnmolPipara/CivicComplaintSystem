@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from enum import Enum
+import json
 
 
 class UserRole(str, Enum):
@@ -11,25 +12,9 @@ class UserRole(str, Enum):
 
 
 class ComplaintStatus(str, Enum):
-    SUBMITTED = "submitted"
-    PRIORITIZED = "prioritized"
-    ASSIGNED = "assigned"
-    IN_PROGRESS = "in_progress"
-    RESOLVED = "resolved"
-    REJECTED = "rejected"
-
-
-class PriorityLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
-class NotificationChannel(str, Enum):
-    EMAIL = "email"
-    SMS = "sms"
-    PUSH = "push"
-    IN_APP = "in_app"
+    PENDING = "pending"
+    WORKING = "working"
+    COMPLETED = "completed"
 
 
 class UserBase(BaseModel):
@@ -71,12 +56,10 @@ class TokenData(BaseModel):
 
 class CitizenProfile(BaseModel):
     address: Optional[str] = None
-    preferred_notification_channels: str = "email,push"
 
 
 class AdminProfile(BaseModel):
     department_id: Optional[int] = None
-    permissions: str = "all"
 
 
 class CategoryBase(BaseModel):
@@ -101,35 +84,32 @@ class CategoryResponse(CategoryBase):
         from_attributes = True
 
 
-class LocationBase(BaseModel):
-    latitude: float
-    longitude: float
-    address: Optional[str] = None
-    landmark: Optional[str] = None
-    area_name: Optional[str] = None
-    city: str = "Mumbai"
-    state: str = "Maharashtra"
-    pincode: Optional[str] = None
-    is_sensitive_zone: int = 0
-
-
-class LocationCreate(LocationBase):
-    pass
-
-
-class LocationResponse(LocationBase):
-    id: int
-    created_at: float
-    
-    class Config:
-        from_attributes = True
-
-
 class ComplaintBase(BaseModel):
     description: str
     category_id: int
-    location_id: int
+    location: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     evidence_urls: Optional[List[str]] = []
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_evidence_urls(cls, data):
+        if isinstance(data, dict) and 'evidence_urls' in data:
+            val = data['evidence_urls']
+            if isinstance(val, str):
+                try:
+                    data['evidence_urls'] = eval(val) if val.startswith('[') else json.loads(val)
+                except Exception:
+                    data['evidence_urls'] = []
+        elif hasattr(data, 'evidence_urls'):
+            val = getattr(data, 'evidence_urls')
+            if isinstance(val, str):
+                try:
+                    setattr(data, 'evidence_urls', eval(val) if val.startswith('[') else json.loads(val))
+                except Exception:
+                    setattr(data, 'evidence_urls', [])
+        return data
 
 
 class ComplaintCreate(ComplaintBase):
@@ -138,7 +118,6 @@ class ComplaintCreate(ComplaintBase):
 
 class ComplaintUpdate(BaseModel):
     status: Optional[ComplaintStatus] = None
-    priority: Optional[PriorityLevel] = None
     department_id: Optional[int] = None
     description: Optional[str] = None
 
@@ -160,8 +139,6 @@ class ComplaintResponse(ComplaintBase):
     citizen_id: int
     department_id: Optional[int]
     status: ComplaintStatus
-    priority: PriorityLevel
-    priority_score: float
     upvote_count: int
     created_at: datetime
     updated_at: datetime
@@ -169,7 +146,6 @@ class ComplaintResponse(ComplaintBase):
     assigned_at: Optional[datetime]
     started_at: Optional[datetime]
     category: Optional[CategoryResponse] = None
-    location: Optional[LocationResponse] = None
     status_history: List[ComplaintStatusHistoryResponse] = []
     
     class Config:
@@ -217,64 +193,3 @@ class VoteResponse(BaseModel):
     
     class Config:
         from_attributes = True
-
-
-class NotificationBase(BaseModel):
-    channel: NotificationChannel
-    subject: Optional[str] = None
-    message: str
-
-
-class NotificationCreate(NotificationBase):
-    recipient_id: int
-    complaint_id: Optional[int] = None
-
-
-class NotificationResponse(NotificationBase):
-    id: int
-    recipient_id: int
-    complaint_id: Optional[int]
-    status: str
-    sent_at: Optional[datetime]
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-
-class ClusterBase(BaseModel):
-    name: Optional[str] = None
-    center_latitude: float
-    center_longitude: float
-    radius_km: float = 1.0
-    category_id: Optional[int] = None
-
-
-class ClusterCreate(ClusterBase):
-    pass
-
-
-class ClusterResponse(ClusterBase):
-    id: int
-    complaint_count: int
-    created_at: float
-    updated_at: float
-    
-    class Config:
-        from_attributes = True
-
-
-class PriorityCalculationRequest(BaseModel):
-    category_id: int
-    location_id: int
-    upvote_count: int = 0
-    created_at: datetime
-
-
-class PriorityCalculationResponse(BaseModel):
-    priority: PriorityLevel
-    priority_score: float
-    severity_score: float
-    location_score: float
-    ageing_score: float
-    vote_score: float

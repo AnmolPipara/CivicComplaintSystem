@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+from passlib.context import CryptContext # pyright: ignore [reportMissingImports]
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -54,13 +54,13 @@ def create_refresh_token(data: dict) -> str:
 def decode_token(token: str) -> Optional[TokenData]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
+        user_id_raw = payload.get("sub")
         role: str = payload.get("role")
         token_type: str = payload.get("type")
-        if user_id is None or role is None:
+        if user_id_raw is None or role is None:
             return None
-        return TokenData(user_id=user_id, role=SchemaUserRole(role))
-    except JWTError:
+        return TokenData(user_id=int(user_id_raw), role=SchemaUserRole(role))
+    except (JWTError, ValueError, KeyError):
         return None
 
 

@@ -59,14 +59,11 @@ export function getPriorityConfig(priority) {
 
 export function getStatusConfig(status) {
   const configs = {
-    submitted: { label: 'Submitted', icon: 'file-text', bg: 'bg-status-submitted-bg', text: 'text-status-submitted-text', border: 'border-status-submitted-border' },
-    prioritized: { label: 'Prioritized', icon: 'flag', bg: 'bg-status-prioritized-bg', text: 'text-status-prioritized-text', border: 'border-status-prioritized-border' },
-    assigned: { label: 'Assigned', icon: 'user-check', bg: 'bg-status-assigned-bg', text: 'text-status-assigned-text', border: 'border-status-assigned-border' },
-    in_progress: { label: 'In Progress', icon: 'loader', bg: 'bg-status-in_progress-bg', text: 'text-status-in_progress-text', border: 'border-status-in_progress-border' },
-    resolved: { label: 'Resolved', icon: 'check-circle-2', bg: 'bg-status-resolved-bg', text: 'text-status-resolved-text', border: 'border-status-resolved-border' },
-    rejected: { label: 'Rejected', icon: 'x-circle', bg: 'bg-status-rejected-bg', text: 'text-status-rejected-text', border: 'border-status-rejected-border' },
+    pending: { label: 'Pending', icon: 'file-text', bg: 'bg-status-submitted-bg', text: 'text-status-submitted-text', border: 'border-status-submitted-border' },
+    working: { label: 'Working', icon: 'loader', bg: 'bg-status-in_progress-bg', text: 'text-status-in_progress-text', border: 'border-status-in_progress-border' },
+    completed: { label: 'Completed', icon: 'check-circle-2', bg: 'bg-status-resolved-bg', text: 'text-status-resolved-text', border: 'border-status-resolved-border' },
   }
-  return configs[status] || configs.submitted
+  return configs[status] || configs.pending
 }
 
 export function getCategoryIcon(categoryName) {

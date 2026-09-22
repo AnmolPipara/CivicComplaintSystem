@@ -2,18 +2,18 @@ import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { complaintAPI } from '../services/api'
-import { Card, PriorityBadge, StatusBadge, Badge, EmptyState, LoadingState, Skeleton, Button } from '../components/UI'
+import { Card, CardContent, StatusBadge, Badge, EmptyState, LoadingState, Skeleton, Button, Alert } from '../components/UI'
 import { MapPin, Clock, ThumbsUp, ChevronRight, Filter, X, Eye, Share2, Heart, FileText, Flag, UserCheck, Loader, CheckCircle2, XCircle, Plus } from 'lucide-react'
 import { formatRelativeTime, getStatusConfig, classNames, truncate } from '../utils/helpers'
 
-const STATUS_ORDER = ['submitted', 'prioritized', 'assigned', 'in_progress', 'resolved', 'rejected']
+const STATUS_ORDER = ['pending', 'working', 'completed']
 
 export function PublicFeedPage() {
   const { user, isAuthenticated } = useAuth()
   const [complaints, setComplaints] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [filters, setFilters] = useState({ status: '', priority: '', category: '' })
+  const [filters, setFilters] = useState({ status: '', category_id: '' })
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const pageSize = 12
@@ -43,7 +43,7 @@ export function PublicFeedPage() {
   }
 
   const clearFilters = () => {
-    setFilters({ status: '', priority: '', category: '' })
+    setFilters({ status: '', category_id: '' })
     setPage(1)
   }
 
@@ -58,16 +58,20 @@ export function PublicFeedPage() {
     try {
       await complaintAPI.upvote(complaintId)
       setComplaints((prev) => prev.map((c) => 
-        c.id === complaintId ? { ...c, upvote_count: c.upvote_count + 1, user_voted: true } : c
+        c.id === complaintId ? { ...c, upvote_count: (c.upvote_count || 0) + 1, user_voted: true } : c
       ))
     } catch (err) {
-      console.error('Upvote failed:', err)
+      if (err.response?.status === 400 || err.response?.data?.detail === "Already voted on this complaint") {
+        alert("You have already voted on this complaint.")
+      } else {
+        console.error('Upvote failed:', err)
+      }
     } finally {
       setUpvoting((prev) => ({ ...prev, [complaintId]: false }))
     }
   }
 
-  const hasActiveFilters = filters.status || filters.priority || filters.category
+  const hasActiveFilters = filters.status || filters.category_id
 
   if (loading && complaints.length === 0) {
     return (
@@ -127,31 +131,20 @@ export function PublicFeedPage() {
                 })}
               </select>
               <select
-                value={filters.priority}
-                onChange={(e) => handleFilterChange('priority', e.target.value)}
-                className="input w-auto"
-                aria-label="Filter by priority"
-              >
-                <option value="">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select
-                value={filters.category}
-                onChange={(e) => handleFilterChange('category', e.target.value)}
+                value={filters.category_id}
+                onChange={(e) => handleFilterChange('category_id', e.target.value)}
                 className="input w-auto"
                 aria-label="Filter by category"
               >
                 <option value="">All Categories</option>
-                <option value="pothole">Pothole / Road Damage</option>
-                <option value="garbage">Garbage / Waste</option>
-                <option value="water_leakage">Water Leakage</option>
-                <option value="streetlight">Streetlight Issue</option>
-                <option value="sewage_overflow">Sewage Overflow</option>
-                <option value="traffic_signal">Traffic Signal</option>
-                <option value="footpath">Footpath / Sidewalk</option>
-                <option value="drainage">Drainage / Waterlogging</option>
+                <option value="1">Pothole / Road Damage</option>
+                <option value="2">Garbage / Waste</option>
+                <option value="3">Water Leakage</option>
+                <option value="4">Streetlight Issue</option>
+                <option value="5">Sewage Overflow</option>
+                <option value="6">Traffic Signal</option>
+                <option value="7">Footpath / Sidewalk</option>
+                <option value="8">Drainage / Waterlogging</option>
               </select>
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -224,8 +217,7 @@ export function PublicFeedPage() {
 }
 
 function PublicComplaintCard({ complaint, onUpvote, upvoting, isAuthenticated }) {
-  const config = getStatusConfig(complaint.status)
-  const IconComponent = getIconComponent(config.icon)
+  const config = getStatusConfig(complaint.status || 'pending')
 
   return (
     <Card className="overflow-hidden hover:shadow-card-hover transition-shadow h-full flex flex-col">
@@ -234,20 +226,19 @@ function PublicComplaintCard({ complaint, onUpvote, upvoting, isAuthenticated })
         <div className="flex items-start justify-between gap-3 mb-3">
           <div className="flex-1 min-w-0">
             <h3 className="text-body font-semibold text-text-primary line-clamp-1">
-              {complaint.category?.display_name || complaint.category_id}
+              {complaint.category?.display_name || 'General Complaint'}
             </h3>
             <p className="text-body-sm text-text-secondary mt-0.5 line-clamp-2">
               {truncate(complaint.description, 120)}
             </p>
           </div>
-          <PriorityBadge priority={complaint.priority} size="sm" />
         </div>
 
         {/* Meta */}
         <div className="flex flex-wrap items-center gap-3 text-body-sm text-text-secondary mb-3">
           <span className="flex items-center gap-1">
             <MapPin className="h-3.5 w-3.5" />
-            {complaint.location?.area_name || complaint.location?.address || 'Unknown location'}
+            {truncate(complaint.location, 25) || 'Unknown location'}
           </span>
           <span className="flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
@@ -259,12 +250,12 @@ function PublicComplaintCard({ complaint, onUpvote, upvoting, isAuthenticated })
         <div className="mb-4">
           <div className="flex items-center justify-between text-caption text-text-muted mb-1.5">
             <span>Status Progress</span>
-            <StatusBadge status={complaint.status} size="sm" />
+            <StatusBadge status={complaint.status || 'pending'} size="sm" />
           </div>
           <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
             <div
               className="h-full bg-primary-500 transition-all duration-500"
-              style={{ width: `${((STATUS_ORDER.indexOf(complaint.status) + 1) / STATUS_ORDER.length) * 100}%` }}
+              style={{ width: `${((STATUS_ORDER.indexOf(complaint.status || 'pending') + 1) / STATUS_ORDER.length) * 100}%` }}
             />
           </div>
         </div>
@@ -280,33 +271,20 @@ function PublicComplaintCard({ complaint, onUpvote, upvoting, isAuthenticated })
           </Link>
           <button
             onClick={onUpvote}
-            disabled={upvoting || !isAuthenticated}
+            disabled={upvoting || !isAuthenticated || complaint.user_voted}
             className={classNames(
               'flex items-center gap-1.5 px-3 py-1.5 rounded-button text-body-sm font-medium transition-colors',
               complaint.user_voted
                 ? 'bg-primary-50 text-primary-600 border-primary-200'
                 : 'bg-surface-elevated text-text-secondary border-border hover:bg-surface-hover'
             )}
-            aria-label={complaint.user_voted ? 'Remove upvote' : 'Upvote'}
-            aria-pressed={complaint.user_voted}
+            aria-label="Upvote"
           >
             <ThumbsUp className={classNames('h-4 w-4', complaint.user_voted ? 'text-primary-500' : '')} />
-            <span>{complaint.upvote_count}</span>
+            <span>{complaint.upvote_count || 0}</span>
           </button>
         </div>
       </div>
     </Card>
   )
-}
-
-function getIconComponent(name) {
-  const icons = {
-    'file-text': FileText,
-    'flag': Flag,
-    'user-check': UserCheck,
-    'loader': Loader,
-    'check-circle-2': CheckCircle2,
-    'x-circle': XCircle,
-  }
-  return icons[name] || FileText
 }

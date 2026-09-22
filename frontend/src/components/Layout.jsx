@@ -30,10 +30,8 @@ const NAV_ITEMS_CITIZEN = [
 const NAV_ITEMS_ADMIN = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/admin/complaints', label: 'All Complaints', icon: FolderKanban },
-  { path: '/admin/reports', label: 'Reports', icon: BarChart3 },
   { path: '/admin/categories', label: 'Categories', icon: Settings },
   { path: '/admin/departments', label: 'Departments', icon: Building2 },
-  { path: '/admin/clusters', label: 'Clusters', icon: MapPin },
 ]
 
 const NAV_ITEMS_DEPARTMENT = [
@@ -90,13 +88,6 @@ export function Header() {
 
           {/* Right side actions */}
           <div className="flex items-center gap-3">
-            {/* Notifications */}
-            {isAuthenticated && (
-              <Link to="/notifications" className="relative p-2 rounded-button text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors" aria-label="Notifications">
-                <Bell className="h-5 w-5" />
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-medium rounded-full flex items-center justify-center">3</span>
-              </Link>
-            )}
 
             {/* User Menu */}
             {isAuthenticated ? (
