@@ -9,8 +9,8 @@ load_dotenv()
 
 from db.session import SessionLocal, engine, Base
 from models import (
-    User, Citizen, Admin, Department, Category, Location,
-    UserRole, ComplaintStatus, PriorityLevel
+    User, Citizen, Admin, Department, Category,
+    UserRole, ComplaintStatus
 )
 from common.auth import get_password_hash
 
