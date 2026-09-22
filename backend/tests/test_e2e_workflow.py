@@ -72,10 +72,9 @@ def run_tests():
     data = {
         "description": "Massive pothole causing accidents",
         "category_id": category_id,
+        "location": "Main Street, Mumbai",
         "latitude": 19.0760,
-        "longitude": 72.8777,
-        "city": "Mumbai",
-        "state": "Maharashtra"
+        "longitude": 72.8777
     }
     res = httpx.post(f"{BASE_URL}/api/complaints", data=data, headers=citizen_headers)
     if res.status_code != 201:
@@ -99,23 +98,23 @@ def run_tests():
     print("ASSIGN RESPONSE:", res_json)
     print(f"SUCCESS: Assigned. Status is now {res_json['complaint'].get('status', 'unknown')}")
     
-    # 5. Department updates status to IN_PROGRESS
-    print(f"\n[4] Department setting complaint #{complaint_id} to IN_PROGRESS")
-    update_data = {"status": "in_progress"}
+    # 5. Department updates status to WORKING
+    print(f"\n[4] Department setting complaint #{complaint_id} to WORKING")
+    update_data = {"status": "working"}
     res = httpx.put(f"{BASE_URL}/api/complaints/{complaint_id}", json=update_data, headers=dept_headers)
     if res.status_code != 200:
         print(f"FAILED Dept update! Status: {res.status_code}, {res.text}")
         return False
-    print("SUCCESS: Updated to IN_PROGRESS.")
+    print("SUCCESS: Updated to WORKING.")
     
-    # 6. Admin resolves it
-    print(f"\n[5] Department resolving complaint #{complaint_id}")
-    update_data = {"status": "resolved"}
+    # 6. Admin / Dept completes it
+    print(f"\n[5] Department marking complaint #{complaint_id} COMPLETED")
+    update_data = {"status": "completed"}
     res = httpx.put(f"{BASE_URL}/api/complaints/{complaint_id}", json=update_data, headers=dept_headers)
     if res.status_code != 200:
-        print(f"FAILED Dept resolve! Status: {res.status_code}, {res.text}")
+        print(f"FAILED Dept complete! Status: {res.status_code}, {res.text}")
         return False
-    print("SUCCESS: Resolved.")
+    print("SUCCESS: Completed.")
     
     # 7. Citizen checks status
     print(f"\n[6] Citizen checking final status of complaint #{complaint_id}")
@@ -123,11 +122,11 @@ def run_tests():
     final_complaint = res.json()
     print(f"SUCCESS: Citizen sees status: {final_complaint['status']}")
     
-    if final_complaint['status'] == "resolved":
+    if final_complaint['status'] == "completed":
         print("\nALL TESTS PASSED!")
         return True
     else:
-        print("Test failed: Final status is not resolved.")
+        print("Test failed: Final status is not completed.")
         return False
 
 if __name__ == "__main__":

@@ -211,12 +211,12 @@ def seed_database():
                 db.add(user)
                 db.flush()
                 
-                from models import Department as DeptModel
-                # Update department with user
-                dept = db.query(DeptModel).filter(DeptModel.id == dept_id).first()
-                if dept:
-                    # Note: We don't have a direct link from department to user in this model
-                    pass
+                admin_profile = Admin(
+                    user_id=user.id,
+                    department_id=dept_id,
+                    permissions="dept"
+                )
+                db.add(admin_profile)
         db.commit()
         print("Database seeded successfully!")
         
