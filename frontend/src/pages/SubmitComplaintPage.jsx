@@ -5,7 +5,7 @@ import { complaintAPI } from '../services/api'
 import { useForm } from '../hooks/useForm'
 import { Button, Input, Textarea, Card, CardContent, Alert, Badge } from '../components/UI'
 import { Camera, X, CheckCircle2, ArrowRight } from 'lucide-react'
-import { classNames } from '../utils/helpers'
+import { classNames, formatErrorMessage } from '../utils/helpers'
 import { MapPicker } from '../components/MapPicker'
 
 const CATEGORIES = [
@@ -66,12 +66,7 @@ export function SubmitComplaintPage() {
         setSuccess(true)
         setTimeout(() => navigate('/dashboard'), 2000)
       } catch (err) {
-        const detail = err.response?.data?.detail
-        if (Array.isArray(detail)) {
-          setError(detail.map(e => `${e.loc?.join('.') || 'Error'}: ${e.msg}`).join(' | '))
-        } else {
-          setError(detail || 'Failed to submit complaint. Please try again.')
-        }
+        setError(formatErrorMessage(err, 'Failed to submit complaint. Please try again.'))
       } finally {
         setSubmitting(false)
       }
@@ -101,13 +96,13 @@ export function SubmitComplaintPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary-50 via-white to-surface-elevated">
-        <Card className="w-full max-w-md text-center p-8">
-          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle2 className="h-8 w-8 text-green-600" />
+      <div className="min-h-screen flex items-center justify-center p-4 bg-surface-elevated bg-mesh">
+        <Card className="w-full max-w-md text-center p-8 shadow-elevated">
+          <div className="w-14 h-14 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="h-7 w-7 text-emerald-400" />
           </div>
-          <h2 className="text-heading-md font-bold text-text-primary mb-2">Complaint Submitted!</h2>
-          <p className="text-body text-text-secondary">Your complaint has been received and is being processed.</p>
+          <h2 className="text-heading-md font-bold text-text-primary mb-2 tracking-tight">Complaint Submitted!</h2>
+          <p className="text-body-sm text-text-secondary">Your complaint has been received and is being processed.</p>
           <Button onClick={() => navigate('/dashboard')} className="mt-6 w-full">
             View Dashboard
             <ArrowRight className="h-4 w-4" />
@@ -118,7 +113,7 @@ export function SubmitComplaintPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-elevated">
+    <div className="min-h-screen bg-surface-elevated bg-mesh">
       <div className="max-w-4xl mx-auto px-4 py-6">
         {error && (
           <Alert variant="danger" className="mb-6" dismissible onClose={() => setError('')}>
@@ -138,16 +133,16 @@ export function SubmitComplaintPage() {
                     type="button"
                     onClick={() => setFieldValue('category_id', cat.value)}
                     className={classNames(
-                      'relative p-4 rounded-button border-2 transition-all text-left',
+                      'relative p-4 rounded-button border-2 transition-all duration-200 text-left',
                       values.category_id === cat.value
-                        ? 'border-primary-500 bg-primary-50'
-                        : 'border-border hover:border-primary-300 hover:bg-surface-hover'
+                        ? 'border-primary-500 bg-primary-500/10 shadow-glow-primary'
+                        : 'border-border-strong hover:border-primary-500/30 hover:bg-surface-hover'
                     )}
                   >
                     <div className="flex items-center gap-3">
                       <div className={classNames(
                         'w-10 h-10 rounded-lg flex items-center justify-center',
-                        values.category_id === cat.value ? 'bg-primary-500' : 'bg-surface-elevated'
+                        values.category_id === cat.value ? 'bg-primary-500' : 'bg-surface-hover/50'
                       )}>
                         <CategoryIcon name={cat.icon} className={classNames('h-5 w-5', values.category_id === cat.value ? 'text-white' : 'text-text-secondary')} />
                       </div>
@@ -185,10 +180,13 @@ export function SubmitComplaintPage() {
                     Pinpoint on Map (Optional)
                   </label>
                   <MapPicker 
-                    value={{ lat: values.latitude, lng: values.longitude }} 
+                    value={{ lat: values.latitude, lng: values.longitude, address: values.location }} 
                     onChange={(pos) => {
                       setFieldValue('latitude', pos.lat);
                       setFieldValue('longitude', pos.lng);
+                      if (pos.address) {
+                        setFieldValue('location', pos.address);
+                      }
                     }} 
                   />
                 </div>

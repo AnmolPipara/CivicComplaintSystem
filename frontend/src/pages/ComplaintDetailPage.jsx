@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { complaintAPI } from '../services/api'
-import { Button, Card, CardContent, Badge, StatusBadge, Alert, LoadingState } from '../components/UI'
+import { complaintAPI, adminAPI } from '../services/api'
+import { Button, Card, CardContent, Badge, StatusBadge, Alert, LoadingState, Modal, Select, Input } from '../components/UI'
 import { 
   MapPin, Clock, Info, FileText, Flag, 
   UserCheck, Loader, CheckCircle2, XCircle,
-  ArrowLeft, ThumbsUp, ChevronLeft, ChevronRight
+  ArrowLeft, ThumbsUp, ChevronLeft, ChevronRight,
+  Sparkles, AlertTriangle, Shield, RefreshCw, Edit, Scale, Navigation
 } from 'lucide-react'
-import { formatDateTime, formatRelativeTime, getStatusConfig, classNames, getInitials, generateAvatarColor } from '../utils/helpers'
+import { formatDateTime, formatRelativeTime, getStatusConfig, classNames, getInitials, generateAvatarColor, formatErrorMessage, calculateDistanceKm } from '../utils/helpers'
+import { LocationModal } from '../components/LocationModal'
 
 const STATUS_ORDER = ['pending', 'working', 'completed']
 
@@ -22,14 +24,45 @@ export function ComplaintDetailPage() {
   const [upvoting, setUpvoting] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [imageIndex, setImageIndex] = useState(0)
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [departments, setDepartments] = useState([])
+  const [assignDeptId, setAssignDeptId] = useState('')
+  const [assigning, setAssigning] = useState(false)
+  
+  // Assessment state
+  const [showAssessmentModal, setShowAssessmentModal] = useState(false)
+  const [assessmentForm, setAssessmentForm] = useState({
+    severity_score: 50,
+    impact_score: 50,
+    urgency_score: 50,
+    is_safety_escalated: false,
+    needs_human_review: false,
+    admin_notes: '',
+  })
+  const [savingAssessment, setSavingAssessment] = useState(false)
+  const [reassessing, setReassessing] = useState(false)
+  
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    targetStatus: null,
+    title: '',
+    message: '',
+    confirmText: '',
+    variant: 'primary',
+  })
+
+  // Location guard state for 25km radius
+  const [showLocationModal, setShowLocationModal] = useState(false)
+  const [upvoteMessage, setUpvoteMessage] = useState(null)
 
   const fetchComplaint = async () => {
     try {
       setLoading(true)
       const response = await complaintAPI.get(id)
       setComplaint(response.data)
+      setError(null)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load complaint')
+      setError(formatErrorMessage(err, 'Failed to load complaint'))
     } finally {
       setLoading(false)
     }
@@ -39,8 +72,59 @@ export function ComplaintDetailPage() {
     fetchComplaint()
   }, [id])
 
+  useEffect(() => {
+    if (isAdmin) {
+      adminAPI.departments().then(res => {
+        const unique = []
+        const seen = new Set()
+        for (const d of res.data) {
+          if (!seen.has(d.display_name)) {
+            seen.add(d.display_name)
+            unique.push(d)
+          }
+        }
+        setDepartments(unique)
+      }).catch(err => console.error('Failed to load departments:', err))
+    }
+  }, [isAdmin])
+
+  const openAssignModal = () => {
+    setAssignDeptId(complaint?.department_id ? String(complaint.department_id) : '')
+    setShowAssignModal(true)
+  }
+
+  const confirmAssign = async () => {
+    if (!assignDeptId) return
+    setAssigning(true)
+    try {
+      await adminAPI.assign(id, parseInt(assignDeptId))
+      await fetchComplaint()
+      setShowAssignModal(false)
+    } catch (err) {
+      console.error('Assign failed:', err)
+      alert(formatErrorMessage(err, 'Failed to assign department'))
+    } finally {
+      setAssigning(false)
+    }
+  }
+
   const handleUpvote = async () => {
     if (!complaint || upvoting) return
+    // Only pending complaints can be upvoted
+    if (complaint.status && complaint.status !== 'pending') {
+      setUpvoteMessage({
+        type: 'warning',
+        text: `Voting is only allowed when the incident status is pending (current status: ${complaint.status}).`
+      })
+      return
+    }
+
+    // Intercept if citizen has no saved location (Requirement 4)
+    if (isCitizen && (user?.latitude == null || user?.longitude == null)) {
+      setShowLocationModal(true)
+      return
+    }
+
     setUpvoting(true)
     try {
       await complaintAPI.upvote(id)
@@ -49,28 +133,127 @@ export function ComplaintDetailPage() {
         upvote_count: prev.upvote_count + 1,
         user_voted: true
       }))
+      setUpvoteMessage({ type: 'success', text: 'Thank you for supporting this incident!' })
     } catch (err) {
-      if (err.response?.status === 400 || err.response?.data?.detail === "Already voted on this complaint") {
-        alert("You have already voted on this complaint.")
-      } else {
-        console.error('Upvote failed:', err)
-      }
+      setUpvoteMessage({ type: 'danger', text: formatErrorMessage(err, 'Failed to upvote complaint.') })
     } finally {
       setUpvoting(false)
     }
   }
 
-  const handleStatusChange = async (newStatus) => {
-    if (!complaint || updatingStatus) return
+  const handleLocationSaved = async (newLoc) => {
+    // Check distance between user's new saved location and incident
+    const dist = (newLoc.latitude != null && complaint?.latitude != null)
+      ? calculateDistanceKm(newLoc.latitude, newLoc.longitude, complaint.latitude, complaint.longitude)
+      : null
+
+    if (dist !== null && dist > 25.0) {
+      setUpvoteMessage({
+        type: 'danger',
+        text: `Location saved. However, this incident is ${dist.toFixed(1)} km away, which is outside your 25 km community radius. Upvoting is only permitted within 25 km.`
+      })
+      return
+    }
+
+    if (complaint?.status && complaint.status !== 'pending') {
+      setUpvoteMessage({
+        type: 'warning',
+        text: `Location saved. However, this incident is ${complaint.status} and can no longer be upvoted.`
+      })
+      return
+    }
+
+    // Automatically proceed with original upvote action
+    setUpvoting(true)
+    try {
+      await complaintAPI.upvote(id)
+      setComplaint((prev) => ({
+        ...prev,
+        upvote_count: prev.upvote_count + 1,
+        user_voted: true
+      }))
+      setUpvoteMessage({
+        type: 'success',
+        text: 'Location saved! This incident is within your 25 km community and was automatically upvoted.'
+      })
+    } catch (err) {
+      setUpvoteMessage({
+        type: 'danger',
+        text: formatErrorMessage(err, 'Failed to upvote after saving location.')
+      })
+    } finally {
+      setUpvoting(false)
+    }
+  }
+
+  const requestStatusChange = (newStatus) => {
+    const isStart = newStatus === 'working'
+    setConfirmModal({
+      isOpen: true,
+      targetStatus: newStatus,
+      title: isStart ? 'Start Work on Complaint?' : 'Complete Complaint Work?',
+      message: isStart
+        ? 'Are you sure you want to start work on this complaint? The status will change from Pending to Ongoing.'
+        : 'Are you sure you want to mark this complaint as completed? The status will change from Ongoing to Completed.',
+      confirmText: isStart ? 'Yes, Start Work' : 'Yes, Mark Completed',
+      variant: isStart ? 'primary' : 'success',
+    })
+  }
+
+  const handleConfirmStatus = async () => {
+    if (!complaint || !confirmModal.targetStatus) return
     setUpdatingStatus(true)
     try {
-      await complaintAPI.update(id, { status: newStatus })
+      await complaintAPI.update(id, { status: confirmModal.targetStatus })
+      setConfirmModal(prev => ({ ...prev, isOpen: false, targetStatus: null }))
       await fetchComplaint()
     } catch (err) {
       console.error('Status update failed:', err)
-      alert("Failed to update status. Are you authorized?")
+      alert(formatErrorMessage(err, 'Failed to update status. Please ensure your department is authorized for this complaint.'))
     } finally {
       setUpdatingStatus(false)
+    }
+  }
+
+  const handleOpenAssessment = () => {
+    if (!complaint) return
+    setAssessmentForm({
+      severity_score: complaint.severity_score !== null && complaint.severity_score !== undefined ? complaint.severity_score : 50,
+      impact_score: complaint.impact_score !== null && complaint.impact_score !== undefined ? complaint.impact_score : 50,
+      urgency_score: complaint.urgency_score !== null && complaint.urgency_score !== undefined ? complaint.urgency_score : 50,
+      is_safety_escalated: !!complaint.is_safety_escalated,
+      needs_human_review: !!complaint.needs_human_review,
+      admin_notes: complaint.admin_override_reason || '',
+    })
+    setShowAssessmentModal(true)
+  }
+
+  const handleSaveAssessment = async () => {
+    if (!complaint) return
+    setSavingAssessment(true)
+    try {
+      await adminAPI.updateAssessment(complaint.id, assessmentForm)
+      setShowAssessmentModal(false)
+      await fetchComplaint()
+    } catch (err) {
+      console.error('Failed to update assessment:', err)
+      alert(formatErrorMessage(err, 'Failed to update priority assessment.'))
+    } finally {
+      setSavingAssessment(false)
+    }
+  }
+
+  const handleReassess = async () => {
+    if (!complaint) return
+    setReassessing(true)
+    try {
+      await adminAPI.reassess(complaint.id)
+      await fetchComplaint()
+    } catch (err) {
+      console.error('Reassessment failed:', err)
+      alert(formatErrorMessage(err, 'Failed to re-run assessment.'))
+    } finally {
+      setReassessing(false)
     }
   }
 
@@ -141,7 +324,13 @@ export function ComplaintDetailPage() {
             <p className="text-body text-text-secondary">{complaint.category?.display_name || 'Unknown Category'}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {isAdmin && complaint.priority_score != null && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-500/10 border border-primary-500/20 text-primary-400 font-mono text-sm font-semibold">
+              <Sparkles className="h-3.5 w-3.5 text-primary-400" />
+              <span>Priority Score: {Number(complaint.priority_score).toFixed(1)} / 100</span>
+            </div>
+          )}
           <StatusBadge status={complaint.status || 'pending'} size="lg" />
         </div>
       </div>
@@ -170,7 +359,7 @@ export function ComplaintDetailPage() {
                   Submitted {formatRelativeTime(complaint.created_at)}
                 </span>
                 {complaint.resolved_at && (
-                  <span className="flex items-center gap-1 text-green-600">
+                  <span className="flex items-center gap-1 text-emerald-400">
                     <CheckCircle2 className="h-4 w-4" />
                     Resolved {formatRelativeTime(complaint.resolved_at)}
                   </span>
@@ -196,14 +385,14 @@ export function ComplaintDetailPage() {
                     <>
                       <button
                          onClick={() => setImageIndex((i) => (i - 1 + evidenceUrls.length) % evidenceUrls.length)}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-card hover:bg-white transition-colors"
+                        className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-card/90 backdrop-blur flex items-center justify-center shadow-elevated border border-border hover:bg-surface-hover transition-colors"
                         aria-label="Previous image"
                       >
                         <ChevronLeft className="h-5 w-5 text-text-primary" />
                       </button>
                       <button
                         onClick={() => setImageIndex((i) => (i + 1) % evidenceUrls.length)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 backdrop-blur flex items-center justify-center shadow-card hover:bg-white transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-card/90 backdrop-blur flex items-center justify-center shadow-elevated border border-border hover:bg-surface-hover transition-colors"
                         aria-label="Next image"
                       >
                         <ChevronRight className="h-5 w-5 text-text-primary" />
@@ -217,7 +406,7 @@ export function ComplaintDetailPage() {
                         onClick={() => setImageIndex(idx)}
                         className={classNames(
                           'w-2 h-2 rounded-full transition-colors',
-                          idx === imageIndex ? 'bg-white' : 'bg-white/50 hover:bg-white/75'
+                          idx === imageIndex ? 'bg-white' : 'bg-white/30 hover:bg-white/60'
                         )}
                         aria-label={`View image ${idx + 1}`}
                       />
@@ -245,9 +434,9 @@ export function ComplaintDetailPage() {
                     <div key={step} className="relative pl-14 pb-6 last:pb-0 flex items-start">
                       <div className={classNames(
                         'absolute left-6 top-1 w-3 h-3 rounded-full border-3 flex-shrink-0 z-10',
-                        isCompleted ? 'bg-primary-500 border-primary-500' : 'bg-white border-border'
+                        isCompleted ? 'bg-primary-500 border-primary-500' : 'bg-surface border-border-strong'
                       )}>
-                        {isCurrent && <div className="absolute inset-1 bg-white" /> }
+                        {isCurrent && <div className="absolute inset-1 bg-surface" /> }
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className={classNames('flex items-center gap-2', isCurrent ? 'text-primary-600' : 'text-text-secondary')}>
@@ -255,7 +444,7 @@ export function ComplaintDetailPage() {
                           <span className={classNames('font-medium', isCurrent ? 'text-text-primary' : '')}>
                             {stepConfig.label}
                           </span>
-                          {isCurrent && <span className="text-caption bg-primary-100 text-primary-700 px-2 py-0.5 rounded-full">Current</span>}
+                          {isCurrent && <span className="text-caption bg-primary-500/15 text-primary-400 px-2 py-0.5 rounded-full">Current</span>}
                         </div>
                         {historyEntry && (
                           <p className="mt-1 text-body-sm text-text-muted pl-6">
@@ -274,15 +463,28 @@ export function ComplaintDetailPage() {
           {isCitizen && (
             <Card>
               <CardContent className="p-5">
+                {upvoteMessage && (
+                  <Alert
+                    variant={upvoteMessage.type || 'info'}
+                    className="mb-4"
+                    dismissible
+                    onClose={() => setUpvoteMessage(null)}
+                  >
+                    {upvoteMessage.text}
+                  </Alert>
+                )}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <button
                       onClick={handleUpvote}
-                      disabled={upvoting || complaint.user_voted}
+                      disabled={upvoting || complaint.user_voted || (complaint.status && complaint.status !== 'pending')}
+                      title={complaint.status && complaint.status !== 'pending' ? `Voting closed (${complaint.status})` : 'Upvote incident'}
                       className={classNames(
                         'flex items-center gap-2 px-4 py-2 rounded-button border transition-colors',
                         complaint.user_voted
                           ? 'bg-primary-50 border-primary-200 text-primary-600'
+                          : complaint.status && complaint.status !== 'pending'
+                          ? 'opacity-40 cursor-not-allowed bg-surface-elevated/40 border-border/50 text-text-muted'
                           : 'bg-surface-elevated border-border text-text-secondary hover:bg-surface-hover'
                       )}
                       aria-label="Upvote"
@@ -291,7 +493,11 @@ export function ComplaintDetailPage() {
                       <span className="font-medium">{complaint.upvote_count || 0}</span>
                     </button>
                     <div className="hidden sm:block text-body-sm text-text-muted">
-                      {complaint.user_voted ? 'You upvoted this' : 'Upvote to increase priority'}
+                      {complaint.user_voted
+                        ? 'You upvoted this'
+                        : complaint.status && complaint.status !== 'pending'
+                        ? `Voting closed (incident is ${complaint.status === 'working' ? 'in progress' : complaint.status})`
+                        : 'Upvote to increase priority (within 25 km)'}
                     </div>
                   </div>
                 </div>
@@ -307,8 +513,8 @@ export function ComplaintDetailPage() {
                 <div className="space-y-4">
                   {complaint.status_history.slice().reverse().map((entry) => (
                     <div key={entry.id} className="flex gap-3">
-                      <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-                        <Info className="h-4 w-4 text-primary-500" />
+                      <div className="w-8 h-8 rounded-full bg-primary-500/15 flex items-center justify-center flex-shrink-0">
+                        <Info className="h-4 w-4 text-primary-400" />
                       </div>
                       <div className="flex-1">
                         <p className="text-body text-text-primary">Status changed to {getStatusConfig(entry.new_status).label}</p>
@@ -326,6 +532,189 @@ export function ComplaintDetailPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Priority Assessment Card (Admin Only) */}
+          {isAdmin && (
+            <Card className="border border-border-strong shadow-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-primary-500/10 via-transparent to-accent-500/10 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-primary-400" />
+                  <h2 className="text-heading-sm font-semibold text-text-primary">Priority Assessment</h2>
+                </div>
+                {complaint.priority_score != null && (
+                  <span className="font-mono text-xs font-semibold px-2.5 py-1 rounded-md bg-primary-500/10 border border-primary-500/20 text-primary-300">
+                    Formula Score: {Number(complaint.priority_score).toFixed(1)} / 100
+                  </span>
+                )}
+              </div>
+            <CardContent className="p-5 space-y-4">
+              {/* Score summary & status */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-elevated border border-border">
+                <div>
+                  <span className="text-caption uppercase tracking-wider text-text-muted font-bold">Total Priority Score</span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-2xl font-bold font-mono text-text-primary">
+                      {complaint.priority_score !== null && complaint.priority_score !== undefined ? complaint.priority_score.toFixed(1) : '—'}
+                    </span>
+                    <span className="text-xs text-text-muted">/ 100</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <span className={classNames(
+                    'text-caption font-semibold px-2 py-0.5 rounded-full border',
+                    complaint.assessment_status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                    complaint.assessment_status === 'provisional' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                    'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                  )}>
+                    {complaint.assessment_status === 'completed' ? 'AI Evaluated' :
+                     complaint.assessment_status === 'provisional' ? 'Provisional Baseline' :
+                     complaint.assessment_status || 'Pending'}
+                  </span>
+                  {complaint.assessment_confidence && (
+                    <span className="text-[11px] text-text-muted">
+                      Confidence: <span className="font-semibold text-text-secondary capitalize">{complaint.assessment_confidence}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Safety Alert or Review Needed */}
+              {complaint.is_safety_escalated && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-300 text-body-sm">
+                  <Shield className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-semibold text-rose-300">Immediate Safety Hazard Escalation</strong>
+                    <p className="text-xs text-rose-300/80 mt-0.5">This issue has an urgent safety hazard flag requiring prompt action.</p>
+                  </div>
+                </div>
+              )}
+
+              {complaint.needs_human_review && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-300 text-body-sm">
+                  <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="font-semibold text-amber-300">Awaiting Admin Verification</strong>
+                    <p className="text-xs text-amber-300/80 mt-0.5">Vague evidence or potential safety risk flagged for human triage.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Component Scores Breakdown */}
+              <div className="space-y-3 pt-2">
+                <span className="text-caption font-bold tracking-wider text-text-muted uppercase">Formula Breakdown</span>
+                
+                {/* Severity */}
+                <div>
+                  <div className="flex justify-between text-body-sm mb-1">
+                    <span className="text-text-secondary flex items-center gap-1.5">
+                      Severity <span className="text-[11px] text-text-muted">(40%)</span>
+                    </span>
+                    <span className="font-mono font-semibold text-text-primary">
+                      {complaint.severity_score !== null ? `${complaint.severity_score}/100` : '—'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-red-400 rounded-full transition-all" style={{ width: `${complaint.severity_score || 0}%` }} />
+                  </div>
+                </div>
+
+                {/* Public Impact */}
+                <div>
+                  <div className="flex justify-between text-body-sm mb-1">
+                    <span className="text-text-secondary flex items-center gap-1.5">
+                      Public Impact <span className="text-[11px] text-text-muted">(25%)</span>
+                    </span>
+                    <span className="font-mono font-semibold text-text-primary">
+                      {complaint.impact_score !== null ? `${complaint.impact_score}/100` : '—'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${complaint.impact_score || 0}%` }} />
+                  </div>
+                </div>
+
+                {/* Urgency */}
+                <div>
+                  <div className="flex justify-between text-body-sm mb-1">
+                    <span className="text-text-secondary flex items-center gap-1.5">
+                      Urgency <span className="text-[11px] text-text-muted">(20%)</span>
+                    </span>
+                    <span className="font-mono font-semibold text-text-primary">
+                      {complaint.urgency_score !== null ? `${complaint.urgency_score}/100` : '—'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${complaint.urgency_score || 0}%` }} />
+                  </div>
+                </div>
+
+                {/* Citizen Support */}
+                <div>
+                  <div className="flex justify-between text-body-sm mb-1">
+                    <span className="text-text-secondary flex items-center gap-1.5">
+                      Citizen Support <span className="text-[11px] text-text-muted">(15%)</span>
+                    </span>
+                    <span className="font-mono font-semibold text-text-primary">
+                      {complaint.upvote_count || 0} votes
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-400 rounded-full transition-all" 
+                      style={{ 
+                        width: `${Math.min(100, Math.round(100 * (Math.log(1 + (complaint.upvote_count || 0)) / Math.log(51))))}%` 
+                      }} 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Reason / Explanation */}
+              {complaint.assessment_reason && (
+                <div className="p-3 rounded-xl bg-surface-elevated/60 border border-border">
+                  <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">Assessment Rationale</span>
+                  <p className="text-body-sm text-text-secondary leading-relaxed">{complaint.assessment_reason}</p>
+                </div>
+              )}
+
+              {/* Missing Information Tags */}
+              {complaint.missing_information && complaint.missing_information.length > 0 && (
+                <div>
+                  <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1.5">Missing Details for Higher Confidence</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {complaint.missing_information.map((item, idx) => (
+                      <span key={idx} className="text-caption px-2 py-0.5 rounded-badge bg-surface-hover/60 border border-border text-text-muted">
+                        • {item}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Override Indicator */}
+              {complaint.admin_override && (
+                <div className="p-2.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300 flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary-400 shrink-0" />
+                  <span>Admin Verified {complaint.admin_override_reason ? `: "${complaint.admin_override_reason}"` : ''}</span>
+                </div>
+              )}
+
+              {/* Admin Actions */}
+              {isAdmin && (
+                <div className="pt-2 flex flex-col gap-2">
+                  <Button variant="primary" size="sm" className="w-full justify-center" onClick={handleOpenAssessment}>
+                    <Edit className="h-3.5 w-3.5" />
+                    Review / Adjust Assessment
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-center text-xs" onClick={handleReassess} disabled={reassessing}>
+                    <RefreshCw className={classNames('h-3.5 w-3.5', reassessing ? 'animate-spin' : '')} />
+                    {reassessing ? 'Re-evaluating with AI...' : 'Re-run AI Assessment'}
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          )}
+
           {/* Info Card */}
           <Card>
             <CardContent className="p-5">
@@ -348,6 +737,15 @@ export function ComplaintDetailPage() {
                 <div>
                   <dt className="text-text-muted">Location</dt>
                   <dd className="font-medium text-text-primary">{complaint.location}</dd>
+                  {user?.latitude != null && complaint?.latitude != null && (() => {
+                    const dist = calculateDistanceKm(user.latitude, user.longitude, complaint.latitude, complaint.longitude)
+                    return dist != null ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-primary-500/10 text-primary-300 border border-primary-500/20">
+                        <Navigation className="h-3.5 w-3.5 text-primary-400" />
+                        <span>{dist <= 0.1 ? '< 100m' : `${dist.toFixed(1)} km`} from your community ({dist <= 25.0 ? 'Within 25 km' : 'Outside 25 km'})</span>
+                      </div>
+                    ) : null
+                  })()}
                 </div>
                 <div>
                   <dt className="text-text-muted">Submitted</dt>
@@ -362,7 +760,7 @@ export function ComplaintDetailPage() {
                 {complaint.resolved_at && (
                   <div>
                     <dt className="text-text-muted">Resolved</dt>
-                    <dd className="font-medium text-green-600">{formatDateTime(complaint.resolved_at)}</dd>
+                    <dd className="font-medium text-emerald-400">{formatDateTime(complaint.resolved_at)}</dd>
                   </div>
                 )}
                 {complaint.department && (
@@ -379,27 +777,219 @@ export function ComplaintDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Department Actions */}
-          {(isAdmin || isDepartment) && complaint.status !== 'completed' && (
-            <Card className="border-primary-200 bg-primary-50">
+          {/* Department Actions - only available in Department handles */}
+          {isDepartment && complaint.status !== 'completed' && (
+            <Card className="border-primary-500/20 bg-primary-500/5">
               <CardContent className="p-5">
-                <h2 className="text-heading-sm font-semibold text-primary-700 mb-4">Update Status</h2>
+                <h2 className="text-heading-sm font-semibold text-primary-400 mb-4">Department Actions</h2>
                 <div className="space-y-2">
                   {complaint.status === 'pending' ? (
-                    <Button variant="primary" className="w-full" onClick={() => handleStatusChange('working')} loading={updatingStatus}>
-                      Mark as Working
+                    <Button variant="primary" className="w-full" onClick={() => requestStatusChange('working')} loading={updatingStatus}>
+                      Start Work
                     </Button>
                   ) : complaint.status === 'working' ? (
-                    <Button variant="success" className="w-full" onClick={() => handleStatusChange('completed')} loading={updatingStatus}>
-                      Mark as Completed
+                    <Button variant="success" className="w-full" onClick={() => requestStatusChange('completed')} loading={updatingStatus}>
+                      Mark Completed
                     </Button>
                   ) : null}
                 </div>
               </CardContent>
             </Card>
           )}
+
+          {/* Admin Assignment Action - Admin role is to assign work */}
+          {isAdmin && (
+            <Card className="border-border">
+              <CardContent className="p-5">
+                <h2 className="text-heading-sm font-semibold text-text-primary mb-3">Department Assignment</h2>
+                <p className="text-body-sm text-text-secondary mb-4">
+                  Assigned to: <strong className="text-text-primary">{complaint.department?.display_name || 'Unassigned'}</strong>
+                </p>
+                <Button variant="secondary" className="w-full" onClick={openAssignModal}>
+                  {complaint.department_id ? 'Reassign Department' : 'Assign Department'}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
+
+      {/* Admin Assign Modal */}
+      {isAdmin && (
+        <Modal
+          isOpen={showAssignModal}
+          onClose={() => setShowAssignModal(false)}
+          title={complaint?.department_id ? "Reassign Department" : "Assign Department"}
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-body text-text-secondary">
+              {complaint?.department_id ? 'Reassign' : 'Assign'} complaint <strong>#{complaint?.id}</strong> to a department:
+            </p>
+            <Select
+              label="Department"
+              options={departments.map(d => ({ value: d.id, label: d.display_name }))}
+              placeholder="Select department"
+              value={assignDeptId}
+              onChange={(e) => setAssignDeptId(e.target.value)}
+            />
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="secondary" onClick={() => setShowAssignModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={confirmAssign} disabled={!assignDeptId || assigning} loading={assigning}>
+                {complaint?.department_id ? 'Reassign' : 'Assign'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Status Change Confirmation Modal */}
+      <Modal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-body text-text-secondary leading-relaxed">
+            {confirmModal.message}
+          </p>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+              disabled={updatingStatus}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={confirmModal.variant}
+              onClick={handleConfirmStatus}
+              loading={updatingStatus}
+              disabled={updatingStatus}
+            >
+              {confirmModal.confirmText}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Admin Assessment Override Modal */}
+      {showAssessmentModal && (
+        <Modal
+          isOpen={showAssessmentModal}
+          onClose={() => setShowAssessmentModal(false)}
+          title="Adjust Priority Assessment"
+        >
+          <div className="space-y-4">
+            <p className="text-body-sm text-text-secondary">
+              Modify the evidence-based component scores or apply safety escalation. The priority score will automatically update using the weighted formula.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="label flex justify-between">
+                  <span>Severity Score (0–100) — Weight 40%</span>
+                  <span className="font-mono text-primary-400 font-bold">{assessmentForm.severity_score}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assessmentForm.severity_score}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, severity_score: parseInt(e.target.value) }))}
+                  className="w-full accent-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="label flex justify-between">
+                  <span>Public Impact Score (0–100) — Weight 25%</span>
+                  <span className="font-mono text-primary-400 font-bold">{assessmentForm.impact_score}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assessmentForm.impact_score}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, impact_score: parseInt(e.target.value) }))}
+                  className="w-full accent-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="label flex justify-between">
+                  <span>Urgency Score (0–100) — Weight 20%</span>
+                  <span className="font-mono text-primary-400 font-bold">{assessmentForm.urgency_score}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assessmentForm.urgency_score}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, urgency_score: parseInt(e.target.value) }))}
+                  className="w-full accent-primary-500"
+                />
+              </div>
+            </div>
+
+            {/* Checkboxes */}
+            <div className="p-3 rounded-lg bg-surface-elevated border border-border space-y-2">
+              <label className="flex items-center gap-2.5 cursor-pointer text-body-sm font-medium text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={assessmentForm.is_safety_escalated}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, is_safety_escalated: e.target.checked }))}
+                  className="rounded border-border text-rose-500 focus:ring-rose-500/20"
+                />
+                <span>Immediate Safety Escalation (verified hazard)</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer text-body-sm font-medium text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={assessmentForm.needs_human_review}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, needs_human_review: e.target.checked }))}
+                  className="rounded border-border text-amber-500 focus:ring-amber-500/20"
+                />
+                <span>Flag for ongoing human review</span>
+              </label>
+            </div>
+
+            {/* Admin Notes */}
+            <div>
+              <label className="label">Admin Verification Notes / Rationale</label>
+              <textarea
+                value={assessmentForm.admin_notes}
+                onChange={(e) => setAssessmentForm(prev => ({ ...prev, admin_notes: e.target.value }))}
+                placeholder="Reason for score adjustment or on-site verification notes..."
+                rows={3}
+                className="input resize-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button variant="ghost" onClick={() => setShowAssessmentModal(false)} disabled={savingAssessment}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleSaveAssessment} loading={savingAssessment}>
+                Save Assessment
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Location Modal for Setting Profile Location before Upvoting */}
+      <LocationModal
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        onSuccess={handleLocationSaved}
+        title="Location Required for Upvoting"
+        explanation="Please add your location before upvoting. You can only view and support incidents within 25 km of your saved location."
+      />
     </div>
   )
 }

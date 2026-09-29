@@ -50,13 +50,13 @@ function MainLayout() {
   if (loading) {
     return (
       <div className="min-h-screen bg-surface-elevated flex items-center justify-center">
-        <div className="animate-spin h-8 w-8 border-3 border-primary-500 border-t-transparent rounded-full" />
+        <div className="animate-spin h-8 w-8 border-2 border-primary-500 border-t-transparent rounded-full" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-surface-elevated">
+    <div className="min-h-screen bg-surface-elevated bg-mesh">
       <Header />
       <main className="pt-0">
         <Outlet />
@@ -194,7 +194,7 @@ function App() {
         
         {/* 404 */}
         <Route path="*" element={
-          <div className="min-h-screen flex items-center justify-center bg-surface-elevated">
+          <div className="min-h-screen flex items-center justify-center bg-surface-elevated bg-mesh">
             <div className="text-center">
               <h1 className="text-heading-lg font-bold text-text-primary">Page Not Found</h1>
               <p className="text-body text-text-secondary mt-2">The page you're looking for doesn't exist.</p>

@@ -42,13 +42,19 @@ if not (c1_token and c2_token and admin_token and dept_token):
     exit(1)
 
 admin_headers = {"Authorization": f"Bearer {admin_token}"}
-requests.post(f"{BASE_URL}/admin/departments", json={"name": f"PW_{r}", "display_name": "Public Works", "description": "Roads"}, headers=admin_headers)
-requests.post(f"{BASE_URL}/admin/categories", json={"name": f"pot_{r}", "display_name": "Potholes", "base_severity": 0.5}, headers=admin_headers)
-
 res = requests.get(f"{BASE_URL}/admin/departments", headers=admin_headers)
+depts = res.json()
+if not any(d.get('display_name') == 'Public Works' for d in depts):
+    requests.post(f"{BASE_URL}/admin/departments", json={"name": f"PW_{r}", "display_name": "Public Works", "description": "Roads"}, headers=admin_headers)
+    res = requests.get(f"{BASE_URL}/admin/departments", headers=admin_headers)
+
 dept_id = res.json()[0]['id']
 
 res = requests.get(f"{BASE_URL}/admin/categories", headers=admin_headers)
+cats = res.json()
+if not cats:
+    requests.post(f"{BASE_URL}/admin/categories", json={"name": f"pot_{r}", "display_name": "Potholes", "base_severity": 0.5}, headers=admin_headers)
+    res = requests.get(f"{BASE_URL}/admin/categories", headers=admin_headers)
 cat_id = res.json()[0]['id']
 
 # Citizen creates complaint (Form data)
@@ -108,5 +114,9 @@ if c1_res.json()["status"] == "completed":
     print("[PASS] Citizen sees COMPLETED status")
 else:
     print("[FAIL] Citizen status is incorrect:", c1_res.json())
+
+# Cleanup: delete the test complaint and votes so it does not pollute the real user feed
+os.system(f'docker exec civic-postgres psql -U user -d civic_complaints -c "DELETE FROM votes WHERE complaint_id = {comp_id}; DELETE FROM complaint_status_history WHERE complaint_id = {comp_id}; DELETE FROM complaints WHERE id = {comp_id};"')
+print("[PASS] Cleaned up test complaint", comp_id)
 
 print("--- E2E API Test Complete ---")

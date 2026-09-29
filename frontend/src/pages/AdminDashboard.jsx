@@ -10,9 +10,10 @@ import {
   LayoutDashboard, FileText, Users, TrendingUp, AlertTriangle,
   Clock, CheckCircle2, Filter, X, MoreVertical, Edit, Trash2,
   ArrowUpDown, Download, BarChart3, Building2, MapPin, FolderKanban,
-  Settings, ChevronLeft, ChevronRight, ThumbsUp
+  Settings, ChevronLeft, ChevronRight, ThumbsUp, Activity, Zap, RefreshCw,
+  Sparkles, Sliders, ShieldAlert, Shield
 } from 'lucide-react'
-import { formatRelativeTime, getStatusConfig, classNames, truncate, formatNumber } from '../utils/helpers'
+import { formatRelativeTime, getStatusConfig, classNames, truncate, formatNumber, formatErrorMessage } from '../utils/helpers'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const STATUS_ORDER = ['pending', 'working', 'completed']
@@ -28,8 +29,9 @@ export function AdminDashboard() {
     status: '',
     category_id: '',
     department_id: '',
+    needs_human_review: '',
     search: '',
-    sort_by: 'upvote_count',
+    sort_by: 'priority_score',
     sort_order: 'desc',
   })
   const [page, setPage] = useState(1)
@@ -40,6 +42,29 @@ export function AdminDashboard() {
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [selectedComplaint, setSelectedComplaint] = useState(null)
   const [assignDeptId, setAssignDeptId] = useState('')
+  const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    complaintId: null,
+    targetStatus: null,
+    title: '',
+    message: '',
+    confirmText: '',
+    variant: 'primary',
+  })
+  // Priority Assessment Triage Modal State
+  const [showAssessmentModal, setShowAssessmentModal] = useState(false)
+  const [assessmentTarget, setAssessmentTarget] = useState(null)
+  const [assessmentForm, setAssessmentForm] = useState({
+    severity_score: 50,
+    impact_score: 50,
+    urgency_score: 50,
+    is_safety_escalated: false,
+    needs_human_review: false,
+    admin_notes: '',
+  })
+  const [savingAssessment, setSavingAssessment] = useState(false)
+  const [reassessingId, setReassessingId] = useState(null)
 
   const fetchStats = async () => {
     if (!isAdmin) return;
@@ -62,12 +87,7 @@ export function AdminDashboard() {
       setComplaints(response.data.complaints)
       setTotal(response.data.total)
     } catch (err) {
-      const detail = err.response?.data?.detail
-      if (Array.isArray(detail)) {
-        setError(detail.map(e => `${e.loc?.join('.') || 'Error'}: ${e.msg}`).join(' | '))
-      } else {
-        setError(detail || 'Failed to load complaints')
-      }
+      setError(formatErrorMessage(err, 'Failed to load complaints'))
     } finally {
       setLoading(false)
     }
@@ -87,7 +107,15 @@ export function AdminDashboard() {
     if (!isAdmin) return;
     try {
       const response = await adminAPI.departments()
-      setDepartments(response.data)
+      const uniqueDepts = []
+      const seen = new Set()
+      for (const d of response.data) {
+        if (!seen.has(d.display_name)) {
+          seen.add(d.display_name)
+          uniqueDepts.push(d)
+        }
+      }
+      setDepartments(uniqueDepts)
     } catch (err) {
       console.error('Failed to fetch departments:', err)
     }
@@ -110,18 +138,82 @@ export function AdminDashboard() {
       status: '',
       category_id: '',
       department_id: '',
+      needs_human_review: '',
       search: '',
-      sort_by: 'upvote_count',
+      sort_by: 'priority_score',
       sort_order: 'desc',
     })
     setPage(1)
   }
 
-  const hasActiveFilters = filters.status || filters.category_id || filters.department_id || filters.search
+  const hasActiveFilters = filters.status || filters.category_id || filters.department_id || filters.needs_human_review || filters.search
 
-  const handleAssign = async (complaint) => {
+  const handleOpenAssessmentModal = (complaint) => {
+    setAssessmentTarget(complaint)
+    setAssessmentForm({
+      severity_score: complaint.severity_score ?? 50,
+      impact_score: complaint.impact_score ?? 50,
+      urgency_score: complaint.urgency_score ?? 50,
+      is_safety_escalated: !!complaint.is_safety_escalated,
+      needs_human_review: !!complaint.needs_human_review,
+      admin_notes: complaint.admin_override_reason || '',
+    })
+    setShowAssessmentModal(true)
+  }
+
+  const handleSaveAssessment = async () => {
+    if (!assessmentTarget) return
+    try {
+      setSavingAssessment(true)
+      await adminAPI.updateAssessment(assessmentTarget.id, {
+        severity_score: Number(assessmentForm.severity_score),
+        impact_score: Number(assessmentForm.impact_score),
+        urgency_score: Number(assessmentForm.urgency_score),
+        is_safety_escalated: Boolean(assessmentForm.is_safety_escalated),
+        needs_human_review: Boolean(assessmentForm.needs_human_review),
+        admin_override_reason: assessmentForm.admin_notes,
+      })
+      setShowAssessmentModal(false)
+      setAssessmentTarget(null)
+      await fetchComplaints()
+      if (isAdmin) await fetchStats()
+    } catch (err) {
+      console.error('Failed to update assessment:', err)
+      alert(formatErrorMessage(err, 'Failed to update assessment'))
+    } finally {
+      setSavingAssessment(false)
+    }
+  }
+
+  const handleReassess = async (complaintId) => {
+    try {
+      setReassessingId(complaintId)
+      const res = await adminAPI.reassess(complaintId)
+      const updated = res.data
+      if (assessmentTarget && assessmentTarget.id === complaintId) {
+        setAssessmentTarget(updated)
+        setAssessmentForm({
+          severity_score: updated.severity_score ?? 50,
+          impact_score: updated.impact_score ?? 50,
+          urgency_score: updated.urgency_score ?? 50,
+          is_safety_escalated: !!updated.is_safety_escalated,
+          needs_human_review: !!updated.needs_human_review,
+          admin_notes: updated.admin_override_reason || '',
+        })
+      }
+      await fetchComplaints()
+      if (isAdmin) await fetchStats()
+    } catch (err) {
+      console.error('Failed to re-assess complaint:', err)
+      alert(formatErrorMessage(err, 'Failed to re-run AI assessment'))
+    } finally {
+      setReassessingId(null)
+    }
+  }
+
+  const handleAssign = (complaint) => {
     setSelectedComplaint(complaint)
-    setAssignDeptId('')
+    setAssignDeptId(complaint.department_id ? String(complaint.department_id) : '')
     setShowAssignModal(true)
   }
 
@@ -135,17 +227,39 @@ export function AdminDashboard() {
       setSelectedComplaint(null)
     } catch (err) {
       console.error('Assign failed:', err)
+      alert(formatErrorMessage(err, 'Failed to assign department'))
     }
   }
 
-  const handleStatusUpdate = async (complaintId, status) => {
-    if (!window.confirm(`Mark this complaint as ${status}?`)) return
+  const requestStatusUpdate = (complaintId, targetStatus) => {
+    const isStart = targetStatus === 'working'
+    setConfirmModal({
+      isOpen: true,
+      complaintId,
+      targetStatus,
+      title: isStart ? 'Start Work on Complaint?' : 'Complete Complaint Work?',
+      message: isStart
+        ? 'Are you sure you want to start work on this complaint? The status will change from Pending to Ongoing.'
+        : 'Are you sure you want to mark this complaint as completed? The status will change from Ongoing to Completed.',
+      confirmText: isStart ? 'Yes, Start Work' : 'Yes, Mark Completed',
+      variant: isStart ? 'primary' : 'success',
+    })
+  }
+
+  const handleConfirmStatus = async () => {
+    if (!confirmModal.complaintId || !confirmModal.targetStatus) return
+    const { complaintId, targetStatus } = confirmModal
+    setUpdatingStatus(true)
     try {
-      await complaintAPI.update(complaintId, { status })
-      fetchComplaints()
-      if (isAdmin) fetchStats()
+      await complaintAPI.update(complaintId, { status: targetStatus })
+      setConfirmModal(prev => ({ ...prev, isOpen: false, complaintId: null, targetStatus: null }))
+      await fetchComplaints()
+      if (isAdmin) await fetchStats()
     } catch (err) {
       console.error('Status update failed:', err)
+      alert(formatErrorMessage(err, 'Failed to update status. Please ensure your department is authorized for this complaint.'))
+    } finally {
+      setUpdatingStatus(false)
     }
   }
 
@@ -156,14 +270,22 @@ export function AdminDashboard() {
   return (
     <div className="page-container">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-heading-lg font-bold text-text-primary">Admin Dashboard</h1>
-          <p className="text-body text-text-secondary mt-1">Manage and monitor civic complaints</p>
+          <h1 className="text-heading-lg font-bold text-text-primary flex items-center gap-3">
+            {isDepartment ? (
+              <><Building2 className="h-7 w-7 text-primary-400" /> Department Dashboard</>
+            ) : (
+              <><Activity className="h-7 w-7 text-primary-400" /> Admin Dashboard</>
+            )}
+          </h1>
+          <p className="text-body text-text-secondary mt-1">
+            {isDepartment ? 'Manage and resolve complaints assigned to your department' : 'Manage and monitor civic complaints'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={fetchComplaints}>
-            <Icon name="refresh" className="h-4 w-4" />
+            <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
         </div>
@@ -171,31 +293,45 @@ export function AdminDashboard() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
           <StatCard
             title="Open Complaints"
             value={stats.open_complaints}
             icon={FileText}
-            iconColor="text-primary-500"
-            bgColor="bg-primary-50"
+            gradient="from-primary-500/20 to-primary-500/5"
+            iconColor="text-primary-400"
+            borderGlow="border-primary-500/20"
+            highlightValue
             trend={stats.resolved_this_week > 0 ? `+${stats.resolved_this_week} resolved this week` : null}
-            trendColor="text-green-600"
+            trendColor="text-emerald-400"
+          />
+          <StatCard
+            title="Awaiting Review"
+            value={stats.needs_review_count || 0}
+            icon={AlertTriangle}
+            gradient="from-amber-500/20 to-amber-500/5"
+            iconColor="text-amber-400"
+            borderGlow="border-amber-500/20"
+            trend="Needs Admin Triage"
+            trendColor="text-amber-400"
           />
           <StatCard
             title="Resolved This Week"
             value={stats.resolved_this_week}
             icon={CheckCircle2}
-            iconColor="text-green-500"
-            bgColor="bg-green-50"
+            gradient="from-emerald-500/20 to-emerald-500/5"
+            iconColor="text-emerald-400"
+            borderGlow="border-emerald-500/20"
             trend={`Avg ${stats.avg_resolution_days} days to resolve`}
             trendColor="text-text-muted"
           />
           <StatCard
             title="Avg Resolution Time"
             value={`${stats.avg_resolution_days} days`}
-            icon={Clock}
-            iconColor="text-amber-500"
-            bgColor="bg-amber-50"
+            icon={Zap}
+            gradient="from-amber-500/20 to-amber-500/5"
+            iconColor="text-amber-400"
+            borderGlow="border-amber-500/20"
             trend="Target: < 7 days"
             trendColor="text-text-muted"
           />
@@ -204,10 +340,13 @@ export function AdminDashboard() {
 
       {/* Charts Row */}
       {stats && (
-        <div className="grid gap-6 lg:grid-cols-2 mb-6">
+        <div className="grid gap-6 lg:grid-cols-2 mb-8">
           <Card>
             <CardContent className="p-5">
-              <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Complaints by Category</h2>
+              <h2 className="text-heading-sm font-bold text-text-primary mb-4 tracking-tight flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary-400" />
+                Complaints by Category
+              </h2>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -215,9 +354,11 @@ export function AdminDashboard() {
                       data={stats.by_category}
                       cx="50%"
                       cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
+                      innerRadius={55}
+                      outerRadius={95}
                       paddingAngle={2}
+                      stroke="rgba(20, 30, 53, 0.8)"
+                      strokeWidth={2}
                       dataKey="count"
                       nameKey="category"
                       label={({ category, count, percent }) => `${category}: ${count} (${(percent * 100).toFixed(0)}%)`}
@@ -227,7 +368,7 @@ export function AdminDashboard() {
                         <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value) => [value, 'complaints']} />
+                    <Tooltip contentStyle={{ backgroundColor: '#141e35', borderColor: 'rgba(148, 163, 184, 0.12)', borderRadius: '12px', fontSize: '12px', color: '#f1f5f9' }} formatter={(value) => [value, 'complaints']} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -236,15 +377,18 @@ export function AdminDashboard() {
 
           <Card>
             <CardContent className="p-5">
-              <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Complaints by Status</h2>
+              <h2 className="text-heading-sm font-bold text-text-primary mb-4 tracking-tight flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-emerald-400" />
+                Complaints by Status
+              </h2>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stats.by_status} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                    <YAxis dataKey="status" type="category" width={120} tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                    <Tooltip formatter={(value) => [value, 'complaints']} />
-                    <Bar dataKey="count" fill="#2d8ab4" radius={[0, 4, 4, 0]} maxBarWidth={40} />
+                    <CartesianGrid strokeDasharray="2 2" stroke="rgba(148, 163, 184, 0.08)" vertical={false} />
+                    <XAxis type="number" stroke="rgba(148, 163, 184, 0.12)" tick={{ fill: '#64748b', fontSize: 11 }} />
+                    <YAxis dataKey="status" type="category" width={120} stroke="rgba(148, 163, 184, 0.12)" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#141e35', borderColor: 'rgba(148, 163, 184, 0.12)', borderRadius: '12px', fontSize: '12px', color: '#f1f5f9' }} formatter={(value) => [value, 'complaints']} />
+                    <Bar dataKey="count" fill="#6366f1" radius={[0, 6, 6, 0]} maxBarWidth={32} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -258,7 +402,7 @@ export function AdminDashboard() {
         <CardContent className="p-4">
           <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
             <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-text-muted" />
+              <Filter className="h-4 w-4 text-primary-400" />
               <span className="text-body-sm font-medium text-text-secondary">Filters:</span>
             </div>
             <div className="flex flex-wrap gap-3 flex-1">
@@ -307,11 +451,22 @@ export function AdminDashboard() {
                 </select>
               )}
               <select
+                value={filters.needs_human_review}
+                onChange={(e) => handleFilterChange('needs_human_review', e.target.value)}
+                className="input w-auto"
+                aria-label="Filter by review status"
+              >
+                <option value="">All Review Status</option>
+                <option value="true">Needs Human Review</option>
+                <option value="false">Clear / Verified</option>
+              </select>
+              <select
                 value={filters.sort_by}
                 onChange={(e) => handleFilterChange('sort_by', e.target.value)}
                 className="input w-auto"
                 aria-label="Sort by"
               >
+                <option value="priority_score">Priority Score</option>
                 <option value="upvote_count">Upvotes</option>
                 <option value="created_at">Date Created</option>
                 <option value="status">Status</option>
@@ -368,26 +523,27 @@ export function AdminDashboard() {
         />
       ) : (
         <>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-card border border-border bg-surface-card/50 backdrop-blur-sm">
             <table className="w-full" role="table">
               <thead>
                 <tr className="border-b border-border text-left text-body-sm font-medium text-text-muted">
-                  <th className="pb-3 px-4">Complaint</th>
-                  <th className="pb-3 px-4 hidden md:table-cell">Category</th>
-                  <th className="pb-3 px-4 hidden lg:table-cell">Location</th>
-                  <th className="pb-3 px-4">Upvotes</th>
-                  <th className="pb-3 px-4">Status</th>
-                  <th className="pb-3 px-4 hidden md:table-cell">Department</th>
-                  <th className="pb-3 px-4">Submitted</th>
-                  <th className="pb-3 px-4">Actions</th>
+                  <th className="pb-3 pt-4 px-4">Complaint</th>
+                  <th className="pb-3 pt-4 px-4 hidden md:table-cell">Category</th>
+                  <th className="pb-3 pt-4 px-4 hidden lg:table-cell">Location</th>
+                  <th className="pb-3 pt-4 px-4">Priority Score</th>
+                  <th className="pb-3 pt-4 px-4">Upvotes</th>
+                  <th className="pb-3 pt-4 px-4">Status</th>
+                  <th className="pb-3 pt-4 px-4 hidden md:table-cell">Department</th>
+                  <th className="pb-3 pt-4 px-4">Submitted</th>
+                  <th className="pb-3 pt-4 px-4">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {complaints.map((complaint) => (
-                  <tr key={complaint.id} className="hover:bg-surface-hover transition-colors">
+                  <tr key={complaint.id} className="hover:bg-surface-hover/50 transition-colors">
                     <td className="py-4 px-4">
                       <div>
-                        <p className="font-medium text-text-primary">#{complaint.id}</p>
+                        <p className="font-medium text-text-primary font-mono text-sm">#{complaint.id}</p>
                         <p className="text-body-sm text-text-secondary line-clamp-1 max-w-xs">
                           {truncate(complaint.description, 80)}
                         </p>
@@ -402,8 +558,41 @@ export function AdminDashboard() {
                       </p>
                     </td>
                     <td className="py-4 px-4">
-                      <span className="flex items-center text-primary-600 font-bold text-sm bg-primary-50 px-2 py-1 rounded w-fit">
-                         <ThumbsUp className="w-4 h-4 mr-1" />
+                      <div className="flex flex-col gap-1.5 items-start min-w-[120px]">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-base font-bold font-mono text-primary-300">
+                            {complaint.priority_score != null ? Number(complaint.priority_score).toFixed(1) : '—'}
+                          </span>
+                          <span className="text-xs text-text-muted">/ 100</span>
+                        </div>
+                        <div className="w-24 h-1.5 bg-surface-hover/60 rounded-full overflow-hidden border border-border/40">
+                          <div
+                            className={classNames(
+                              'h-full rounded-full transition-all',
+                              (complaint.priority_score || 0) >= 80 ? 'bg-rose-500' :
+                              (complaint.priority_score || 0) >= 60 ? 'bg-amber-500' :
+                              (complaint.priority_score || 0) >= 35 ? 'bg-primary-500' : 'bg-slate-500'
+                            )}
+                            style={{ width: `${Math.min(100, Math.max(0, complaint.priority_score || 0))}%` }}
+                          />
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {complaint.needs_human_review && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              <AlertTriangle className="w-2.5 h-2.5" /> Review
+                            </span>
+                          )}
+                          {complaint.is_safety_escalated && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30">
+                              <ShieldAlert className="w-2.5 h-2.5" /> Safety Hazard
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4">
+                      <span className="inline-flex items-center text-amber-400 font-bold text-xs bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-badge w-fit gap-1">
+                         <ThumbsUp className="w-3.5 h-3.5" />
                          {complaint.upvote_count || 0}
                       </span>
                     </td>
@@ -416,7 +605,7 @@ export function AdminDashboard() {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <span className="text-body-sm text-text-secondary">
+                      <span className="text-body-sm text-text-muted">
                         {formatRelativeTime(complaint.created_at)}
                       </span>
                     </td>
@@ -425,21 +614,33 @@ export function AdminDashboard() {
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/complaints/${complaint.id}`)}>
                           View
                         </Button>
+                        {isAdmin && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-primary-400 hover:text-primary-300"
+                            onClick={() => handleOpenAssessmentModal(complaint)}
+                            title="Triage & Assess"
+                          >
+                            <Sliders className="h-3.5 w-3.5 mr-1" />
+                            Triage
+                          </Button>
+                        )}
                         {complaint.status !== 'completed' && (
                           <>
-                            {isAdmin && !complaint.department_id && (
+                            {isAdmin && (
                               <Button variant="secondary" size="sm" onClick={() => handleAssign(complaint)}>
-                                Assign
+                                {complaint.department_id ? 'Reassign' : 'Assign'}
                               </Button>
                             )}
-                            {(isAdmin || isDepartment) && complaint.status === 'pending' && (
-                              <Button variant="primary" size="sm" onClick={() => handleStatusUpdate(complaint.id, 'working')}>
+                            {isDepartment && complaint.status === 'pending' && (
+                              <Button variant="primary" size="sm" onClick={() => requestStatusUpdate(complaint.id, 'working')}>
                                 Start Work
                               </Button>
                             )}
-                            {(isAdmin || isDepartment) && complaint.status === 'working' && (
-                              <Button variant="success" size="sm" onClick={() => handleStatusUpdate(complaint.id, 'completed')}>
-                                Resolve
+                            {isDepartment && complaint.status === 'working' && (
+                              <Button variant="success" size="sm" onClick={() => requestStatusUpdate(complaint.id, 'completed')}>
+                                Mark Completed
                               </Button>
                             )}
                           </>
@@ -455,7 +656,7 @@ export function AdminDashboard() {
           {/* Pagination */}
           {total > pageSize && (
             <div className="mt-6 flex items-center justify-between">
-              <span className="text-body-sm text-text-secondary">
+              <span className="text-body-sm text-text-muted">
                 Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, total)} of {total} complaints
               </span>
               <div className="flex items-center gap-2">
@@ -488,12 +689,12 @@ export function AdminDashboard() {
       <Modal
         isOpen={showAssignModal}
         onClose={() => { setShowAssignModal(false); setSelectedComplaint(null); }}
-        title="Assign Department"
+        title={selectedComplaint?.department_id ? "Reassign Department" : "Assign Department"}
         size="sm"
       >
         <div className="space-y-4">
           <p className="text-body text-text-secondary">
-            Assign complaint <strong>#{selectedComplaint?.id}</strong> to a department:
+            {selectedComplaint?.department_id ? 'Reassign' : 'Assign'} complaint <strong className="text-text-primary">#{selectedComplaint?.id}</strong> to a department:
           </p>
           <Select
             label="Department"
@@ -507,35 +708,227 @@ export function AdminDashboard() {
               Cancel
             </Button>
             <Button onClick={confirmAssign} disabled={!assignDeptId}>
-              Assign
+              {selectedComplaint?.department_id ? 'Reassign' : 'Assign'}
             </Button>
           </div>
         </div>
       </Modal>
+
+      {/* Status Change Confirmation Modal */}
+      <Modal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+        title={confirmModal.title}
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-body text-text-secondary leading-relaxed">
+            {confirmModal.message}
+          </p>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+              disabled={updatingStatus}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={confirmModal.variant}
+              onClick={handleConfirmStatus}
+              loading={updatingStatus}
+              disabled={updatingStatus}
+            >
+              {confirmModal.confirmText}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Priority Assessment Triage Modal */}
+      {showAssessmentModal && assessmentTarget && (
+        <Modal
+          isOpen={showAssessmentModal}
+          onClose={() => { setShowAssessmentModal(false); setAssessmentTarget(null); }}
+          title="Triage & Prioritization Assessment"
+          size="md"
+        >
+          <div className="space-y-5">
+            {/* Header snippet */}
+            <div className="p-3.5 rounded-xl bg-surface-elevated border border-border">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="font-mono text-sm font-bold text-text-primary">Complaint #{assessmentTarget.id}</span>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary-500/10 border border-primary-500/20">
+                  <Sparkles className="w-3.5 h-3.5 text-primary-400" />
+                  <span className="text-xs font-mono font-bold text-primary-300">
+                    Score: {assessmentTarget.priority_score != null ? Number(assessmentTarget.priority_score).toFixed(1) : '—'} / 100
+                  </span>
+                </div>
+              </div>
+              <p className="text-body-sm text-text-secondary line-clamp-2">{assessmentTarget.description || 'No description provided'}</p>
+            </div>
+
+            {/* AI Rationale & Missing Info if present */}
+            {assessmentTarget.assessment_reason && (
+              <div className="p-3 rounded-lg bg-surface-hover/40 border border-border/70 text-body-sm">
+                <div className="flex items-center justify-between text-caption font-semibold uppercase tracking-wider text-text-muted mb-1">
+                  <span className="flex items-center gap-1"><Sparkles className="w-3.5 h-3.5 text-primary-400" /> AI Evaluation Rationale</span>
+                  {assessmentTarget.assessment_confidence && (
+                    <span className="capitalize text-text-secondary">Confidence: {assessmentTarget.assessment_confidence}</span>
+                  )}
+                </div>
+                <p className="text-text-secondary leading-relaxed">{assessmentTarget.assessment_reason}</p>
+                {assessmentTarget.missing_information && assessmentTarget.missing_information.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-border/50">
+                    <span className="text-caption text-text-muted mr-1">Missing details:</span>
+                    {assessmentTarget.missing_information.map((item, i) => (
+                      <span key={i} className="text-caption px-1.5 py-0.5 rounded bg-surface-card border border-border text-text-muted">
+                        • {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Score Sliders */}
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-body-sm mb-1">
+                  <span className="text-text-secondary font-medium">Severity Score (0–100) — Weight 40%</span>
+                  <span className="font-mono text-primary-400 font-bold">{assessmentForm.severity_score}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assessmentForm.severity_score}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, severity_score: parseInt(e.target.value) || 0 }))}
+                  className="w-full accent-primary-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-body-sm mb-1">
+                  <span className="text-text-secondary font-medium">Public Impact Score (0–100) — Weight 25%</span>
+                  <span className="font-mono text-primary-400 font-bold">{assessmentForm.impact_score}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assessmentForm.impact_score}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, impact_score: parseInt(e.target.value) || 0 }))}
+                  className="w-full accent-primary-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-body-sm mb-1">
+                  <span className="text-text-secondary font-medium">Urgency Score (0–100) — Weight 20%</span>
+                  <span className="font-mono text-primary-400 font-bold">{assessmentForm.urgency_score}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={assessmentForm.urgency_score}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, urgency_score: parseInt(e.target.value) || 0 }))}
+                  className="w-full accent-primary-500 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Checkbox Controls */}
+            <div className="p-3 rounded-lg bg-surface-elevated border border-border space-y-2">
+              <label className="flex items-center gap-2.5 cursor-pointer text-body-sm font-medium text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={assessmentForm.is_safety_escalated}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, is_safety_escalated: e.target.checked }))}
+                  className="rounded border-border text-rose-500 focus:ring-rose-500/20"
+                />
+                <span>Immediate Safety Hazard Escalation (prioritizes safety response)</span>
+              </label>
+
+              <label className="flex items-center gap-2.5 cursor-pointer text-body-sm font-medium text-text-primary">
+                <input
+                  type="checkbox"
+                  checked={assessmentForm.needs_human_review}
+                  onChange={(e) => setAssessmentForm(prev => ({ ...prev, needs_human_review: e.target.checked }))}
+                  className="rounded border-border text-amber-500 focus:ring-amber-500/20"
+                />
+                <span>Keep flagged for human review</span>
+              </label>
+            </div>
+
+            {/* Admin Override Reason Notes */}
+            <div>
+              <label className="label">Admin Triage / Verification Notes</label>
+              <textarea
+                value={assessmentForm.admin_notes}
+                onChange={(e) => setAssessmentForm(prev => ({ ...prev, admin_notes: e.target.value }))}
+                placeholder="Notes on assessment adjustment, site inspection, or hazard confirmation..."
+                rows={2}
+                className="input resize-none"
+              />
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-border">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleReassess(assessmentTarget.id)}
+                disabled={reassessingId === assessmentTarget.id || savingAssessment}
+                className="text-xs text-text-muted hover:text-text-primary"
+              >
+                <RefreshCw className={classNames('h-3.5 w-3.5 mr-1', reassessingId === assessmentTarget.id ? 'animate-spin' : '')} />
+                {reassessingId === assessmentTarget.id ? 'Re-evaluating...' : 'Re-run AI Assessment'}
+              </Button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <Button variant="secondary" onClick={() => { setShowAssessmentModal(false); setAssessmentTarget(null); }} disabled={savingAssessment}>
+                  Cancel
+                </Button>
+                <Button variant="primary" onClick={handleSaveAssessment} loading={savingAssessment} disabled={savingAssessment}>
+                  Save Assessment
+                </Button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
 
-function StatCard({ title, value, icon: Icon, iconColor, bgColor, trend, trendColor }) {
+function StatCard({ title, value, icon: Icon, gradient, iconColor, borderGlow = '', highlightValue = false, trend, trendColor }) {
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-body-sm text-text-secondary">{title}</p>
-          <p className="text-heading-lg font-bold text-text-primary mt-1">{formatNumber(value)}</p>
-          {trend && (
-            <p className={classNames('text-body-sm mt-1', trendColor)}>{trend}</p>
-          )}
-        </div>
-        <div className={classNames('w-12 h-12 rounded-lg flex items-center justify-center', bgColor)}>
-          <Icon className={classNames('h-6 w-6', iconColor)} />
+    <Card className={classNames('p-5 relative overflow-hidden', borderGlow)}>
+      {/* Gradient background accent */}
+      <div className={classNames('absolute inset-0 bg-gradient-to-br opacity-50', gradient)} />
+      <div className="relative">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-body-sm font-medium text-text-secondary">{title}</p>
+            <p className={classNames('text-heading-lg font-bold mt-1 tracking-tight font-heading', highlightValue ? 'text-primary-400' : 'text-text-primary')}>
+              {typeof value === 'number' ? formatNumber(value) : value}
+            </p>
+            {trend && (
+              <p className={classNames('text-caption font-semibold mt-1.5', trendColor)}>{trend}</p>
+            )}
+          </div>
+          <div className={classNames('w-11 h-11 rounded-xl flex items-center justify-center bg-surface-hover/50 border border-border')}>
+            <Icon className={classNames('h-5 w-5', iconColor)} />
+          </div>
         </div>
       </div>
     </Card>
   )
 }
 
-const CHART_COLORS = ['#2d8ab4', '#166534', '#ad6800', '#c0152f', '#6b21a8', '#0891b2', '#ea580c', '#65a30d']
+const CHART_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6']
 
 function Icon({ name, className }) {
   const icons = {

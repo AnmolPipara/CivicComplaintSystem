@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="fav-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#1e1b4b" />
+      <stop offset="100%" stopColor="#0b1120" />
+    </linearGradient>
+    <linearGradient id="fav-shield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#818cf8" />
+      <stop offset="100%" stopColor="#6366f1" />
+    </linearGradient>
+    <linearGradient id="fav-pulse" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stopColor="#38bdf8" />
+      <stop offset="50%" stopColor="#34d399" />
+      <stop offset="100%" stopColor="#818cf8" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#fav-bg)" stroke="#6366f1" stroke-width="1" stroke-opacity="0.3" />
+  <!-- Shield outline -->
+  <path
+    d="M16 4.5L7.5 8.2V14.5C7.5 20.2 11.2 25.2 16 27C20.8 25.2 24.5 20.2 24.5 14.5V8.2L16 4.5Z"
+    stroke="url(#fav-shield)"
+    stroke-width="1.8"
+    stroke-linejoin="round"
+    fill="none"
+  />
+  <!-- Heartbeat pulse -->
+  <polyline
+    points="10,16.5 12.5,16.5 14,13 15.5,19.5 17,11.5 18.5,16.5 20,16.5 22,16.5"
+    stroke="url(#fav-pulse)"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+  />
+  <circle cx="16" cy="9.2" r="1.5" fill="#818cf8" />
+</svg>

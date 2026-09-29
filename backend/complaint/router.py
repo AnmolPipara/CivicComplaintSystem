@@ -1,28 +1,73 @@
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from sqlalchemy import desc, nullslast
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from db.session import get_db
 from models import (
     Complaint, Category, Department, 
-    ComplaintStatus, Citizen, Vote
+    ComplaintStatus, Citizen, Vote, User, UserRole
 )
 from schemas import (
     ComplaintCreate, ComplaintUpdate, ComplaintResponse, 
     ComplaintListResponse, CategoryResponse, VoteCreate, VoteResponse
 )
-from common.auth import get_current_active_user, require_admin, require_department, require_citizen
-from common.exceptions import NotFoundException, ValidationException, ForbiddenException
+from common.auth import get_current_active_user, get_optional_current_user, require_admin, require_department, require_citizen
+from common.exceptions import NotFoundException, ValidationException, ForbiddenException, UnauthorizedException
+from common.geo import get_visibility_radius_km, calculate_haversine_distance_km, get_haversine_sql_expression
+from common.email_service import send_complaint_notification
 
 router = APIRouter(prefix="/api/complaints", tags=["complaints"])
 
 
+def _attach_user_voted_to_complaints(complaints: List[Complaint], user: Optional[User], db: Session) -> None:
+    """Attach boolean user_voted flag to complaints for the authenticated citizen."""
+    if not complaints:
+        return
+    if not user or user.role != UserRole.CITIZEN:
+        for c in complaints:
+            setattr(c, "user_voted", False)
+        return
+    citizen = db.query(Citizen).filter(Citizen.user_id == user.id).first()
+    if not citizen:
+        for c in complaints:
+            setattr(c, "user_voted", False)
+        return
+    complaint_ids = [c.id for c in complaints]
+    voted_ids = set(
+        r[0] for r in db.query(Vote.complaint_id).filter(
+            Vote.citizen_id == citizen.id,
+            Vote.complaint_id.in_(complaint_ids)
+        ).all()
+    )
+    for c in complaints:
+        setattr(c, "user_voted", c.id in voted_ids)
+
+
+def _attach_user_voted_to_single(complaint: Optional[Complaint], user: Optional[User], db: Session) -> None:
+    """Attach boolean user_voted flag to single complaint for the authenticated citizen."""
+    if not complaint:
+        return
+    if not user or user.role != UserRole.CITIZEN:
+        setattr(complaint, "user_voted", False)
+        return
+    citizen = db.query(Citizen).filter(Citizen.user_id == user.id).first()
+    if not citizen:
+        setattr(complaint, "user_voted", False)
+        return
+    has_voted = db.query(Vote.id).filter(
+        Vote.citizen_id == citizen.id,
+        Vote.complaint_id == complaint.id
+    ).first() is not None
+    setattr(complaint, "user_voted", has_voted)
+
+
 @router.post("", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
 async def create_complaint(
-    description: str = Form(...),
+    background_tasks: BackgroundTasks,
+    description: Optional[str] = Form(default=""),
     category_id: int = Form(...),
     location: str = Form(...),
     latitude: Optional[float] = Form(None),
@@ -32,6 +77,7 @@ async def create_complaint(
     db: Session = Depends(get_db)
 ):
     """Submit a new complaint with location and optional evidence"""
+    description = description or ""
     # Validate category
     category = db.query(Category).filter(Category.id == category_id, Category.is_active == True).first()
     if not category:
@@ -49,22 +95,70 @@ async def create_complaint(
     if not citizen:
         raise NotFoundException("Citizen profile not found")
     
-    # Create complaint
+    # Assess complaint with LLM prioritization service
+    from complaint.assessment import assess_complaint
+    assessment = await assess_complaint(
+        category_name=category.name,
+        category_display=category.display_name,
+        description=description,
+        location=location,
+        latitude=latitude,
+        longitude=longitude,
+        upvote_count=0
+    )
+    
+    # Auto-assign department based on category if department_id is configured
+    assigned_dept_id = category.department_id if category else None
+    
+    # Create complaint with full assessment and priority metrics
     complaint = Complaint(
         citizen_id=citizen.id,
         category_id=category_id,
+        department_id=assigned_dept_id,
+        assigned_at=datetime.utcnow() if assigned_dept_id else None,
         location=location,
         latitude=latitude,
         longitude=longitude,
         description=description,
         evidence_urls=evidence_urls,
         status=ComplaintStatus.PENDING,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
+        # Priority & Assessment fields
+        severity_score=assessment.severity_score,
+        impact_score=assessment.impact_score,
+        urgency_score=assessment.urgency_score,
+        priority_score=assessment.priority_score,
+        priority_level=assessment.priority_level,
+        assessment_status=assessment.assessment_status,
+        assessment_reason=assessment.assessment_reason,
+        assessment_confidence=assessment.assessment_confidence,
+        missing_information=assessment.missing_information,
+        needs_human_review=assessment.needs_human_review,
+        is_safety_escalated=assessment.is_safety_escalated,
+        # AI Audit trail
+        ai_severity_score=assessment.ai_severity_score,
+        ai_impact_score=assessment.ai_impact_score,
+        ai_urgency_score=assessment.ai_urgency_score,
+        ai_reason=assessment.ai_reason
     )
     db.add(complaint)
     db.commit()
     db.refresh(complaint)
     
+    # Send email notification to citizen
+    background_tasks.add_task(
+        send_complaint_notification,
+        event_type="registered",
+        complaint_id=complaint.id,
+        recipient_email=current_user.email,
+        recipient_name=current_user.full_name,
+        category_name=category.display_name if category else "Civic Issue",
+        location=complaint.location,
+        description=complaint.description,
+        timestamp=complaint.created_at
+    )
+    
+    _attach_user_voted_to_single(complaint, current_user, db)
     return complaint
 
 
@@ -73,6 +167,7 @@ async def list_complaints(
     page: int = 1,
     page_size: int = 20,
     status_filter: Optional[ComplaintStatus] = None,
+    status: Optional[ComplaintStatus] = None,
     category_id: Optional[int] = None,
     current_user = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -92,16 +187,21 @@ async def list_complaints(
         if dept_user and dept_user.department_id:
             query = query.filter(Complaint.department_id == dept_user.department_id)
     
-    if status_filter:
-        query = query.filter(Complaint.status == status_filter)
+    effective_status = status_filter or status
+    if effective_status:
+        query = query.filter(Complaint.status == effective_status)
     if category_id:
         query = query.filter(Complaint.category_id == category_id)
     
     total = query.count()
-    # Prioritize based on upvote count (descending) then creation date
-    complaints = query.order_by(desc(Complaint.upvote_count), desc(Complaint.created_at)).offset(
-        (page - 1) * page_size
-    ).limit(page_size).all()
+    # Prioritize based on priority score (descending), upvotes, then creation date
+    complaints = query.order_by(
+        nullslast(desc(Complaint.priority_score)),
+        desc(Complaint.upvote_count),
+        desc(Complaint.created_at)
+    ).offset((page - 1) * page_size).limit(page_size).all()
+    
+    _attach_user_voted_to_complaints(complaints, current_user, db)
     
     return ComplaintListResponse(
         complaints=complaints,
@@ -115,14 +215,53 @@ async def list_complaints(
 async def list_public_complaints(
     page: int = 1,
     page_size: int = 20,
+    status_filter: Optional[ComplaintStatus] = None,
+    status: Optional[ComplaintStatus] = None,
+    category_id: Optional[int] = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
-    """List complaints for public feed, sorted by upvotes"""
+    """
+    List complaints for public feed:
+    - If authenticated citizen: return only incidents within 25 km of user's saved location.
+    - If citizen has not saved a location: return empty list so unlocated incidents are not shown.
+    - If unauthenticated: return empty list to enforce geographic restriction.
+    - Admins retain authorized access across all locations.
+    """
     query = db.query(Complaint)
+    
+    if current_user and current_user.role == UserRole.CITIZEN:
+        citizen = db.query(Citizen).filter(Citizen.user_id == current_user.id).first()
+        if not citizen or citizen.latitude is None or citizen.longitude is None:
+            return ComplaintListResponse(complaints=[], total=0, page=page, page_size=page_size)
+        
+        radius_km = get_visibility_radius_km()
+        dist_expr = get_haversine_sql_expression(
+            citizen.latitude, citizen.longitude, Complaint.latitude, Complaint.longitude
+        )
+        query = query.filter(
+            Complaint.latitude.isnot(None),
+            Complaint.longitude.isnot(None),
+            dist_expr <= radius_km
+        )
+    elif not current_user:
+        # Unauthenticated visitor: require location by returning empty feed
+        return ComplaintListResponse(complaints=[], total=0, page=page, page_size=page_size)
+    
+    effective_status = status_filter or status
+    if effective_status:
+        query = query.filter(Complaint.status == effective_status)
+    if category_id:
+        query = query.filter(Complaint.category_id == category_id)
+        
     total = query.count()
-    complaints = query.order_by(desc(Complaint.upvote_count), desc(Complaint.created_at)).offset(
-        (page - 1) * page_size
-    ).limit(page_size).all()
+    complaints = query.order_by(
+        nullslast(desc(Complaint.priority_score)),
+        desc(Complaint.upvote_count),
+        desc(Complaint.created_at)
+    ).offset((page - 1) * page_size).limit(page_size).all()
+    
+    _attach_user_voted_to_complaints(complaints, current_user, db)
     
     return ComplaintListResponse(
         complaints=complaints,
@@ -135,22 +274,53 @@ async def list_public_complaints(
 @router.get("/{complaint_id}", response_model=ComplaintResponse)
 async def get_complaint(
     complaint_id: int,
-    current_user = Depends(get_current_active_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get complaint details"""
+    """Get complaint details with 25 km visibility check for citizens"""
     complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
     if not complaint:
         raise NotFoundException("Complaint not found")
     
-    # Allow public view for everyone
-    return complaint
+    # Admins and departments retain access across all locations
+    if current_user and current_user.role in [UserRole.ADMIN, UserRole.DEPARTMENT]:
+        _attach_user_voted_to_single(complaint, current_user, db)
+        return complaint
+    
+    # Citizen checks
+    if current_user and current_user.role == UserRole.CITIZEN:
+        citizen = db.query(Citizen).filter(Citizen.user_id == current_user.id).first()
+        # Author can always view their own complaint
+        if citizen and complaint.citizen_id == citizen.id:
+            _attach_user_voted_to_single(complaint, current_user, db)
+            return complaint
+        
+        if not citizen or citizen.latitude is None or citizen.longitude is None:
+            raise ValidationException("Please save your location to view incidents within your 25 km community radius.")
+        
+        if complaint.latitude is None or complaint.longitude is None:
+            raise NotFoundException("Complaint not found or outside visibility radius")
+        
+        dist = calculate_haversine_distance_km(
+            citizen.latitude, citizen.longitude, complaint.latitude, complaint.longitude
+        )
+        radius_km = get_visibility_radius_km()
+        if dist > radius_km:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This incident is {dist:.1f} km away, which is outside your {radius_km:.0f} km community radius."
+            )
+        _attach_user_voted_to_single(complaint, current_user, db)
+        return complaint
+    
+    raise UnauthorizedException("Please log in to view incident details.")
 
 
 @router.put("/{complaint_id}", response_model=ComplaintResponse)
 async def update_complaint(
     complaint_id: int,
     update_data: ComplaintUpdate,
+    background_tasks: BackgroundTasks,
     current_user = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -190,6 +360,26 @@ async def update_complaint(
                 complaint.started_at = datetime.utcnow()
             elif update_data.status == ComplaintStatus.COMPLETED and not complaint.resolved_at:
                 complaint.resolved_at = datetime.utcnow()
+            
+            # Send email notification to citizen on status progression
+            if old_status != update_data.status and update_data.status in (ComplaintStatus.WORKING, ComplaintStatus.COMPLETED):
+                citizen = db.query(Citizen).filter(Citizen.id == complaint.citizen_id).first()
+                citizen_user = citizen.user if citizen else None
+                if citizen_user and citizen_user.email:
+                    cat_obj = db.query(Category).filter(Category.id == complaint.category_id).first()
+                    cat_name = cat_obj.display_name if cat_obj else "Civic Complaint"
+                    event_type = "working" if update_data.status == ComplaintStatus.WORKING else "completed"
+                    background_tasks.add_task(
+                        send_complaint_notification,
+                        event_type=event_type,
+                        complaint_id=complaint.id,
+                        recipient_email=citizen_user.email,
+                        recipient_name=citizen_user.full_name,
+                        category_name=cat_name,
+                        location=complaint.location,
+                        description=complaint.description,
+                        timestamp=datetime.utcnow()
+                    )
         
         # Admin can update department
         if update_data.department_id is not None and current_user.role.value == "admin":
@@ -201,6 +391,7 @@ async def update_complaint(
     db.commit()
     db.refresh(complaint)
     
+    _attach_user_voted_to_single(complaint, current_user, db)
     return complaint
 
 
@@ -219,7 +410,34 @@ async def upvote_complaint(
     if not citizen:
         raise NotFoundException("Citizen profile not found")
     
-    # Check if already voted
+    # 1 & 2. Verify user has saved location coordinates
+    if citizen.latitude is None or citizen.longitude is None:
+        raise ValidationException(
+            "Please add your location before upvoting. You can only view and support incidents within 25 km of your saved location."
+        )
+    
+    # 3. Verify incident coordinates exist
+    if complaint.latitude is None or complaint.longitude is None:
+        raise ValidationException("This incident cannot be upvoted because its geographic coordinates are not set.")
+    
+    # 4. Verify incident is within 25 km of user's saved location
+    distance_km = calculate_haversine_distance_km(
+        citizen.latitude, citizen.longitude, complaint.latitude, complaint.longitude
+    )
+    radius_km = get_visibility_radius_km()
+    if distance_km > radius_km:
+        raise ValidationException(
+            f"This incident is {distance_km:.1f} km away, which is outside your {radius_km:.0f} km community radius. Upvoting is only permitted within {radius_km:.0f} km."
+        )
+    
+    # 5. Verify incident status is pending (voting only allowed for pending complaints)
+    current_status = complaint.status.value if hasattr(complaint.status, 'value') else complaint.status
+    if current_status != "pending":
+        raise ValidationException(
+            f"Voting is only allowed when the incident status is pending (current status: {current_status})."
+        )
+    
+    # 6. Check if already voted
     existing_vote = db.query(Vote).filter(
         Vote.citizen_id == citizen.id,
         Vote.complaint_id == complaint_id
@@ -234,6 +452,19 @@ async def upvote_complaint(
     
     # Update complaint upvote count
     complaint.upvote_count += 1
+    
+    # Recalculate priority score using saved assessment components (No LLM call)
+    from complaint.assessment import calculate_priority_score
+    if complaint.severity_score is not None:
+        new_score, new_level = calculate_priority_score(
+            severity=complaint.severity_score,
+            impact=complaint.impact_score if complaint.impact_score is not None else 35,
+            urgency=complaint.urgency_score if complaint.urgency_score is not None else 35,
+            upvote_count=complaint.upvote_count,
+            is_safety_escalated=complaint.is_safety_escalated
+        )
+        complaint.priority_score = new_score
+        complaint.priority_level = new_level
     
     db.commit()
     db.refresh(vote)
@@ -261,9 +492,29 @@ async def remove_upvote(
         raise NotFoundException("Vote not found")
     
     complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
-    if complaint:
-        complaint.upvote_count = max(0, complaint.upvote_count - 1)
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+        
+    current_status = complaint.status.value if hasattr(complaint.status, 'value') else complaint.status
+    if current_status != "pending":
+        raise ValidationException(
+            f"Votes can only be modified when the incident status is pending (current status: {current_status})."
+        )
     
+    complaint.upvote_count = max(0, complaint.upvote_count - 1)
+    # Recalculate priority score using saved assessment components (No LLM call)
+    from complaint.assessment import calculate_priority_score
+    if complaint.severity_score is not None:
+        new_score, new_level = calculate_priority_score(
+            severity=complaint.severity_score,
+            impact=complaint.impact_score if complaint.impact_score is not None else 35,
+            urgency=complaint.urgency_score if complaint.urgency_score is not None else 35,
+            upvote_count=complaint.upvote_count,
+            is_safety_escalated=complaint.is_safety_escalated
+        )
+        complaint.priority_score = new_score
+        complaint.priority_level = new_level
+
     db.delete(vote)
     db.commit()
     

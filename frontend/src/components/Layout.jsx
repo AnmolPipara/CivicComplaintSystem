@@ -18,8 +18,11 @@ import {
   X,
   Shield,
   Building2,
+  Sparkles,
 } from 'lucide-react'
-import { classNames } from '../utils/helpers'
+import { classNames, truncate } from '../utils/helpers'
+import { Logo } from './LogoMark'
+import { LocationModal } from './LocationModal'
 
 const NAV_ITEMS_CITIZEN = [
   { path: '/dashboard', label: 'My Complaints', icon: FileText },
@@ -44,21 +47,17 @@ export function Header() {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
   const [userMenuOpen, setUserMenuOpen] = React.useState(false)
+  const [showLocationModal, setShowLocationModal] = React.useState(false)
 
   const navItems = isAdmin ? NAV_ITEMS_ADMIN : isDepartment ? NAV_ITEMS_DEPARTMENT : NAV_ITEMS_CITIZEN
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-border">
+    <header className="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-border">
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" aria-label="Main navigation">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link to={isAdmin || isDepartment ? '/admin' : '/dashboard'} className="flex items-center gap-2" aria-label="Civic Complaint System Home">
-            <div className="w-9 h-9 rounded-lg bg-primary-500 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
-            <span className="text-heading-sm font-semibold text-text-primary hidden sm:block">
-              CivicSense
-            </span>
+          <Link to={isAdmin || isDepartment ? '/admin' : '/dashboard'} className="flex items-center gap-2.5 group" aria-label="JanSewa Home">
+            <Logo size="sm" showText={true} />
           </Link>
 
           {/* Desktop Navigation */}
@@ -72,15 +71,18 @@ export function Header() {
                   key={item.path}
                   to={item.path}
                   className={({ isActive }) => classNames(
-                    'flex items-center gap-2 px-3 py-2 rounded-button text-body-sm font-medium transition-colors',
+                    'flex items-center gap-2 px-3.5 py-2 rounded-button text-body-sm font-medium transition-all duration-200 relative',
                     isActive
-                      ? 'bg-primary-50 text-primary-600'
-                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                      ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20'
+                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-transparent'
                   )}
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon className="h-4 w-4" aria-hidden="true" />
                   <span>{item.label}</span>
+                  {isActive && (
+                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-primary-500 rounded-full" />
+                  )}
                 </NavLink>
               )
             })}
@@ -88,36 +90,72 @@ export function Header() {
 
           {/* Right side actions */}
           <div className="flex items-center gap-3">
+            {/* Citizen Community Location Pill */}
+            {isAuthenticated && isCitizen && (
+              <button
+                type="button"
+                onClick={() => setShowLocationModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-border bg-surface-card hover:bg-surface-hover hover:border-primary-500/30 transition-all text-text-secondary hover:text-text-primary"
+                title={user?.address ? `Community location: ${user.address}` : 'Set community location for 25 km feed'}
+              >
+                <MapPin className={classNames('h-3.5 w-3.5', user?.latitude != null ? 'text-primary-400' : 'text-amber-400 animate-pulse')} />
+                <span className="max-w-[120px] truncate hidden sm:inline">
+                  {user?.address ? truncate(user.address, 16) : 'Set Location'}
+                </span>
+                <span className="text-[10px] text-primary-400 font-mono bg-primary-500/10 px-1.5 py-0.5 rounded-full border border-primary-500/20">25 km</span>
+              </button>
+            )}
 
             {/* User Menu */}
             {isAuthenticated ? (
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 p-1.5 rounded-button hover:bg-surface-hover transition-colors"
+                  className="flex items-center gap-2.5 p-1.5 rounded-button hover:bg-surface-hover transition-all duration-200 group"
                   aria-expanded={userMenuOpen}
                   aria-haspopup="true"
                 >
-                  <div className={classNames('w-8 h-8 rounded-full flex items-center justify-center font-medium text-white', generateAvatarColor(user?.full_name || 'User'))}>
+                  <div className={classNames('w-8 h-8 rounded-lg flex items-center justify-center font-semibold text-xs text-white ring-2 ring-primary-500/20 group-hover:ring-primary-500/40 transition-all', generateAvatarColor(user?.full_name || 'User'))}>
                     {getInitials(user?.full_name || 'User')}
                   </div>
                   <span className="hidden sm:block text-body-sm font-medium text-text-primary">{user?.full_name}</span>
-                  <ChevronDown className="h-4 w-4 text-text-muted" />
+                  <ChevronDown className={classNames('h-4 w-4 text-text-muted transition-transform duration-200', userMenuOpen && 'rotate-180')} />
                 </button>
 
                 {userMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-card shadow-elevated border border-border overflow-hidden z-50 animate-fade-in">
-                      <div className="px-4 py-3 border-b border-border">
+                    <div className="absolute right-0 mt-2 w-64 bg-surface-card rounded-card shadow-elevated border border-border-strong overflow-hidden z-50 animate-fade-in backdrop-blur-xl">
+                      <div className="px-4 py-3 border-b border-border bg-surface-hover/30">
                         <p className="text-body-sm font-medium text-text-primary">{user?.full_name}</p>
-                        <p className="text-caption text-text-muted">{user?.email}</p>
-                        <span className="mt-1 inline-block px-2 py-0.5 text-caption font-medium rounded-full bg-primary-100 text-primary-700 capitalize">{user?.role}</span>
+                        <p className="text-caption text-text-muted truncate">{user?.email}</p>
+                        <span className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 text-caption font-semibold rounded-full bg-primary-500/15 text-primary-400 capitalize">
+                          <Sparkles className="h-3 w-3" />
+                          {user?.role}
+                        </span>
                       </div>
+                      {isCitizen && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserMenuOpen(false)
+                            setShowLocationModal(true)
+                          }}
+                          className="flex items-center gap-3 w-full px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors text-left"
+                        >
+                          <MapPin className="h-4 w-4 text-primary-400" />
+                          <div>
+                            <span className="block font-medium">Community Location</span>
+                            <span className="block text-caption text-text-muted truncate max-w-[190px]">
+                              {user?.address ? truncate(user.address, 22) : 'Not configured (Click to set)'}
+                            </span>
+                          </div>
+                        </button>
+                      )}
                       <NavLink
                         to="/profile"
                         onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover"
+                        className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
                       >
                         <User className="h-4 w-4" />
                         Profile
@@ -125,7 +163,7 @@ export function Header() {
                       <NavLink
                         to="/settings"
                         onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover"
+                        className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
                       >
                         <Settings className="h-4 w-4" />
                         Settings
@@ -133,7 +171,7 @@ export function Header() {
                       <hr className="my-1 border-border" />
                       <button
                         onClick={logout}
-                        className="flex items-center gap-3 w-full px-4 py-2.5 text-body-sm text-red-600 hover:bg-red-50"
+                        className="flex items-center gap-3 w-full px-4 py-2.5 text-body-sm text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         <LogOut className="h-4 w-4" />
                         Sign Out
@@ -152,7 +190,7 @@ export function Header() {
             {/* Mobile Menu Button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-button text-text-secondary hover:bg-surface-hover hover:text-text-primary"
+              className="md:hidden p-2 rounded-button text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
               aria-expanded={mobileMenuOpen}
               aria-controls="mobile-menu"
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
@@ -175,9 +213,9 @@ export function Header() {
                     to={item.path}
                     onClick={() => setMobileMenuOpen(false)}
                     className={classNames(
-                      'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium',
+                      'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
                       isActive
-                        ? 'bg-primary-50 text-primary-600'
+                        ? 'bg-primary-500/10 text-primary-400'
                         : 'text-text-secondary hover:bg-surface-hover'
                     )}
                   >
@@ -188,7 +226,7 @@ export function Header() {
               })}
               <hr className="my-3 border-border" />
               {isAuthenticated ? (
-                <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-body font-medium text-red-600 hover:bg-red-50 rounded-button">
+                <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-body font-medium text-red-400 hover:bg-red-500/10 rounded-button transition-colors">
                   <LogOut className="h-5 w-5" />
                   Sign Out
                 </button>
@@ -202,14 +240,28 @@ export function Header() {
           </div>
         )}
       </nav>
+
+      {/* Community Location Modal */}
+      <LocationModal
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        title="My Community Location"
+        explanation="Set your neighborhood center to automatically view and upvote incidents within 25 km of your location. Your home coordinates are never shared publicly."
+      />
     </header>
   )
 }
 
 function generateAvatarColor(name) {
   const colors = [
-    'bg-primary-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500',
-    'bg-violet-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-orange-500',
+    'bg-gradient-to-br from-primary-500 to-primary-700',
+    'bg-gradient-to-br from-emerald-500 to-emerald-700',
+    'bg-gradient-to-br from-amber-500 to-amber-700',
+    'bg-gradient-to-br from-rose-500 to-rose-700',
+    'bg-gradient-to-br from-violet-500 to-violet-700',
+    'bg-gradient-to-br from-cyan-500 to-cyan-700',
+    'bg-gradient-to-br from-indigo-500 to-indigo-700',
+    'bg-gradient-to-br from-orange-500 to-orange-700',
   ]
   let hash = 0
   for (let i = 0; i < name.length; i++) {

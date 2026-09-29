@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Civic Complaint Prioritization System",
+    title="JanSewa - Civic Complaint Prioritization System",
     description="API for civic complaint reporting, prioritization, and management",
     version="1.0.0",
     lifespan=lifespan
@@ -58,7 +58,7 @@ async def health_check():
 @app.get("/")
 async def root():
     return {
-        "message": "Civic Complaint Prioritization System API",
+        "message": "JanSewa - Civic Complaint Prioritization System API",
         "version": "1.0.0",
         "docs": "/docs"
     }

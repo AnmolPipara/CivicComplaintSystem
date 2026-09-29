@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { complaintAPI } from '../services/api'
 import { Button, Card, CardContent, StatusBadge, EmptyState, LoadingState, Skeleton } from '../components/UI'
-import { Plus, FileText, Clock, MapPin, ChevronRight, RefreshCw, Filter, X, ThumbsUp, Loader, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
-import { formatRelativeTime, getStatusConfig, classNames, truncate } from '../utils/helpers'
+import { Plus, FileText, Clock, MapPin, ChevronRight, RefreshCw, Filter, X, ThumbsUp, Loader, CheckCircle2, XCircle, AlertCircle, Sparkles } from 'lucide-react'
+import { formatRelativeTime, getStatusConfig, classNames, truncate, formatErrorMessage } from '../utils/helpers'
 
 const STATUS_ORDER = ['pending', 'working', 'completed']
 
@@ -22,12 +22,15 @@ export function CitizenDashboard() {
   const fetchComplaints = async () => {
     try {
       setLoading(true)
-      const params = { page, page_size: pageSize, ...filters }
+      const cleanFilters = {}
+      if (filters.status) cleanFilters.status_filter = filters.status
+      const params = { page, page_size: pageSize, ...cleanFilters }
       const response = await complaintAPI.list(params)
-      setComplaints(response.data.complaints)
-      setTotal(response.data.total)
+      setComplaints(response.data.complaints || [])
+      setTotal(response.data.total || 0)
+      setError(null)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load complaints')
+      setError(formatErrorMessage(err, 'Failed to load complaints'))
     } finally {
       setLoading(false)
     }
@@ -78,9 +81,12 @@ export function CitizenDashboard() {
   return (
     <div className="page-container">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-heading-lg font-bold text-text-primary">My Complaints</h1>
+          <h1 className="text-heading-lg font-bold text-text-primary flex items-center gap-3">
+            <FileText className="h-7 w-7 text-primary-400" />
+            My Complaints
+          </h1>
           <p className="text-body text-text-secondary mt-1">Track the status of your civic complaints</p>
         </div>
         <Link to="/submit" className="btn-primary">
@@ -94,7 +100,7 @@ export function CitizenDashboard() {
         <CardContent className="p-4">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
             <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-text-muted" />
+              <Filter className="h-4 w-4 text-primary-400" />
               <span className="text-body-sm font-medium text-text-secondary">Filters:</span>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -127,11 +133,11 @@ export function CitizenDashboard() {
 
       {/* Complaints List */}
       {error && (
-        <Card className="mb-6 border-red-200 bg-red-50">
+        <Card className="mb-6 border-red-500/20 bg-red-500/5">
           <CardContent className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3 text-red-700">
+            <div className="flex items-center gap-3 text-red-400">
               <AlertCircle className="h-5 w-5" />
-              <span>{error}</span>
+              <span>{typeof error === 'string' ? error : formatErrorMessage(error)}</span>
             </div>
             <Button variant="ghost" size="sm" onClick={fetchComplaints}>
               <RefreshCw className="h-4 w-4" />
@@ -174,7 +180,7 @@ export function CitizenDashboard() {
               >
                 Previous
               </Button>
-              <span className="text-body-sm text-text-secondary">
+              <span className="text-body-sm text-text-secondary px-2">
                 Page {page} of {Math.ceil(total / pageSize)}
               </span>
               <Button
@@ -199,8 +205,14 @@ function ComplaintCard({ complaint }) {
   const totalSteps = STATUS_ORDER.length
   const progress = ((statusStep + 1) / totalSteps) * 100
 
+  const progressColors = {
+    0: 'bg-amber-500',
+    1: 'bg-blue-500',
+    2: 'bg-emerald-500',
+  }
+
   return (
-    <Card className="overflow-hidden hover:shadow-card-hover transition-shadow">
+    <Card className="overflow-hidden hover:shadow-card-hover hover:border-primary-500/20 transition-all duration-300 hover-lift">
       <div className="p-4">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -213,15 +225,15 @@ function ComplaintCard({ complaint }) {
             </p>
           </div>
           <div className="flex flex-col items-end">
-            <span className="flex items-center text-primary-600 font-bold text-sm bg-primary-50 px-2 py-1 rounded">
-               <ThumbsUp className="w-4 h-4 mr-1" />
+            <span className="flex items-center text-amber-400 font-bold text-sm bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg gap-1">
+               <ThumbsUp className="w-4 h-4" />
                {complaint.upvote_count || 0}
             </span>
           </div>
         </div>
 
         {/* Meta info */}
-        <div className="flex flex-wrap items-center gap-3 text-body-sm text-text-secondary mb-3">
+        <div className="flex flex-wrap items-center gap-3 text-body-sm text-text-muted mb-3">
           <span className="flex items-center gap-1">
             <MapPin className="h-3.5 w-3.5" />
             {truncate(complaint.location, 25) || 'Unknown location'}
@@ -238,27 +250,27 @@ function ComplaintCard({ complaint }) {
             <span>Progress</span>
             <span className="font-medium text-text-secondary">{config.label}</span>
           </div>
-          <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+          <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary-500 transition-all duration-500"
+              className={classNames('h-full transition-all duration-500 rounded-full', progressColors[statusStep] || 'bg-primary-500')}
               style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="flex justify-between mt-1.5">
+          <div className="flex justify-between mt-2">
             {STATUS_ORDER.map((step, idx) => (
               <div
                 key={step}
                 className={classNames(
                   'flex flex-col items-center gap-1',
-                  idx <= statusStep ? 'text-primary-500' : 'text-text-muted'
+                  idx <= statusStep ? 'text-primary-400' : 'text-text-muted'
                 )}
               >
                 <div
                   className={classNames(
-                    'w-2 h-2 rounded-full border-2 transition-colors',
+                    'w-2.5 h-2.5 rounded-full border-2 transition-colors',
                     idx < statusStep ? 'bg-primary-500 border-primary-500' :
-                    idx === statusStep ? 'bg-primary-500 border-primary-500' :
-                    'bg-white border-border'
+                    idx === statusStep ? 'bg-primary-500 border-primary-500 ring-2 ring-primary-500/30' :
+                    'bg-surface border-border-strong'
                   )}
                 />
                 <span className="text-[10px] font-medium truncate w-20 text-center">
@@ -273,12 +285,14 @@ function ComplaintCard({ complaint }) {
         <div className="flex items-center justify-between pt-3 border-t border-border">
           <Link
             to={`/complaint/${complaint.id}`}
-            className="btn-ghost text-body-sm gap-1"
+            className="btn-ghost text-body-sm gap-1 text-primary-400 hover:text-primary-300"
           >
             View Details
             <ChevronRight className="h-3.5 w-3.5" />
           </Link>
-          <StatusBadge status={complaint.status || 'pending'} size="sm" />
+          <div className="flex items-center gap-1.5">
+            <StatusBadge status={complaint.status || 'pending'} size="sm" />
+          </div>
         </div>
       </div>
     </Card>

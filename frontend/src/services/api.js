@@ -10,22 +10,58 @@ const api = axios.create({
   timeout: 30000,
 })
 
-// Request interceptor to add auth token
+// Request interceptor to add auth token and clean empty query params
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    // Clean empty query parameters to prevent 422 errors on optional fields
+    if (config.params && typeof config.params === 'object') {
+      const cleanParams = {}
+      for (const [key, value] of Object.entries(config.params)) {
+        if (value !== '' && value !== null && value !== undefined) {
+          cleanParams[key] = value
+        }
+      }
+      config.params = cleanParams
+    }
     return config
   },
   (error) => Promise.reject(error)
 )
 
-// Response interceptor to handle token refresh
+// Response interceptor to handle token refresh and normalize error messages
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    // Normalize FastAPI / Pydantic V2 error detail so it is never an unformatted object or array
+    if (error.response?.data?.detail !== undefined) {
+      const detail = error.response.data.detail
+      if (Array.isArray(detail)) {
+        const formatted = detail
+          .map((item) => {
+            if (typeof item === 'string') return item
+            if (item && typeof item === 'object') {
+              const field = item.loc ? item.loc[item.loc.length - 1] : ''
+              const prefix = field && field !== 'body' && field !== 'query' ? `${field}: ` : ''
+              return `${prefix}${item.msg || JSON.stringify(item)}`
+            }
+            return String(item)
+          })
+          .filter(Boolean)
+          .join(', ')
+        error.normalizedMessage = formatted || 'Validation error'
+      } else if (typeof detail === 'object' && detail !== null) {
+        error.normalizedMessage = detail.msg || detail.message || JSON.stringify(detail)
+      } else if (typeof detail === 'string') {
+        error.normalizedMessage = detail
+      }
+    } else if (error.message) {
+      error.normalizedMessage = error.message
+    }
+
     const originalRequest = error.config
     
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -78,6 +114,7 @@ export const complaintAPI = {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
   list: (params) => api.get('/complaints', { params }),
+  listPublic: (params) => api.get('/complaints/public', { params }),
   get: (id) => api.get(`/complaints/${id}`),
   update: (id, data) => api.put(`/complaints/${id}`, data),
   upvote: (id) => api.post(`/complaints/${id}/upvote`),
@@ -97,6 +134,8 @@ export const adminAPI = {
   stats: () => api.get('/admin/dashboard/stats'),
   complaints: (params) => api.get('/admin/complaints', { params }),
   complaintDetail: (id) => api.get(`/admin/complaints/${id}`),
+  updateAssessment: (id, data) => api.put(`/admin/complaints/${id}/assessment`, data),
+  reassess: (id) => api.post(`/admin/complaints/${id}/reassess`),
   assign: (id, departmentId) => api.put(`/admin/complaints/${id}/assign`, null, { params: { department_id: departmentId } }),
   resolve: (id, notes) => api.put(`/admin/complaints/${id}/resolve`, null, { params: { resolution_notes: notes } }),
   undo: (id) => api.post(`/admin/complaints/${id}/undo`),

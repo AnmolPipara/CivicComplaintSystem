@@ -199,8 +199,8 @@ def seed_database():
         ]
         
         for email, name, role, dept_id in dept_users:
-            existing = db.query(User).filter(User.email == email).first()
-            if not existing:
+            user = db.query(User).filter(User.email == email).first()
+            if not user:
                 user = User(
                     email=email,
                     password_hash=get_password_hash(SEED_DEPT_PASSWORD),
@@ -211,12 +211,16 @@ def seed_database():
                 db.add(user)
                 db.flush()
                 
+            admin_profile = db.query(Admin).filter(Admin.user_id == user.id).first()
+            if not admin_profile:
                 admin_profile = Admin(
                     user_id=user.id,
                     department_id=dept_id,
                     permissions="dept"
                 )
                 db.add(admin_profile)
+            elif admin_profile.department_id != dept_id:
+                admin_profile.department_id = dept_id
         db.commit()
         print("Database seeded successfully!")
         

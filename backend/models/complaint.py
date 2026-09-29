@@ -35,6 +35,30 @@ class Complaint(Base):
     assigned_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
     
+    # Priority & LLM Assessment Fields
+    severity_score = Column(Integer, nullable=True)
+    impact_score = Column(Integer, nullable=True)
+    urgency_score = Column(Integer, nullable=True)
+    priority_score = Column(Float, nullable=True, index=True)
+    priority_level = Column(String(20), nullable=True, index=True)  # critical, high, medium, low
+    
+    assessment_status = Column(String(20), default="pending", nullable=False)  # completed, pending, failed, provisional
+    assessment_reason = Column(Text, nullable=True)
+    assessment_confidence = Column(String(20), nullable=True)  # high, medium, low
+    missing_information = Column(JSON, nullable=True)  # List[str]
+    needs_human_review = Column(Boolean, default=False, nullable=False, index=True)
+    is_safety_escalated = Column(Boolean, default=False, nullable=False)
+    
+    # Raw AI assessment audit trail
+    ai_severity_score = Column(Integer, nullable=True)
+    ai_impact_score = Column(Integer, nullable=True)
+    ai_urgency_score = Column(Integer, nullable=True)
+    ai_reason = Column(Text, nullable=True)
+    
+    # Admin override audit trail
+    admin_override = Column(Boolean, default=False, nullable=False)
+    admin_override_reason = Column(Text, nullable=True)
+    
     citizen = relationship("Citizen", back_populates="complaints")
     category = relationship("Category", back_populates="complaints")
     department = relationship("Department", back_populates="complaints")

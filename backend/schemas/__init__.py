@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, model_validator, field_serializer
 from enum import Enum
 import json
 
@@ -38,9 +38,29 @@ class UserResponse(UserBase):
     role: UserRole
     is_active: bool
     created_at: datetime
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    has_location: bool = False
     
     class Config:
         from_attributes = True
+
+    @field_serializer('created_at', check_fields=False)
+    def serialize_datetime(self, dt: Optional[datetime], _info):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class Token(BaseModel):
@@ -56,6 +76,9 @@ class TokenData(BaseModel):
 
 class CitizenProfile(BaseModel):
     address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    preferred_notification_channels: Optional[str] = "email,push"
 
 
 class AdminProfile(BaseModel):
@@ -83,9 +106,17 @@ class CategoryResponse(CategoryBase):
     class Config:
         from_attributes = True
 
+    @field_serializer('created_at', check_fields=False)
+    def serialize_datetime(self, dt: Optional[datetime], _info):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
 
 class ComplaintBase(BaseModel):
-    description: str
+    description: Optional[str] = ""
     category_id: int
     location: str
     latitude: Optional[float] = None
@@ -133,6 +164,14 @@ class ComplaintStatusHistoryResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @field_serializer('created_at', check_fields=False)
+    def serialize_datetime(self, dt: Optional[datetime], _info):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
 
 class ComplaintResponse(ComplaintBase):
     id: int
@@ -148,8 +187,45 @@ class ComplaintResponse(ComplaintBase):
     category: Optional[CategoryResponse] = None
     status_history: List[ComplaintStatusHistoryResponse] = []
     
+    # Priority & Assessment fields
+    severity_score: Optional[int] = None
+    impact_score: Optional[int] = None
+    urgency_score: Optional[int] = None
+    priority_score: Optional[float] = None
+    priority_level: Optional[str] = None
+    assessment_status: Optional[str] = "pending"
+    assessment_reason: Optional[str] = None
+    assessment_confidence: Optional[str] = None
+    missing_information: Optional[List[str]] = []
+    needs_human_review: Optional[bool] = False
+    is_safety_escalated: Optional[bool] = False
+    ai_severity_score: Optional[int] = None
+    ai_impact_score: Optional[int] = None
+    ai_urgency_score: Optional[int] = None
+    ai_reason: Optional[str] = None
+    admin_override: Optional[bool] = False
+    admin_override_reason: Optional[str] = None
+    user_voted: Optional[bool] = False
+    
     class Config:
         from_attributes = True
+
+    @field_serializer('created_at', 'updated_at', 'resolved_at', 'assigned_at', 'started_at', check_fields=False)
+    def serialize_datetime(self, dt: Optional[datetime], _info):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
+
+class AssessmentOverrideRequest(BaseModel):
+    severity_score: Optional[int] = Field(None, ge=0, le=100)
+    impact_score: Optional[int] = Field(None, ge=0, le=100)
+    urgency_score: Optional[int] = Field(None, ge=0, le=100)
+    is_safety_escalated: Optional[bool] = None
+    needs_human_review: Optional[bool] = None
+    admin_notes: Optional[str] = None
 
 
 class ComplaintListResponse(BaseModel):

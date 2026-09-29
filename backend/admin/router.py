@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, case
+from sqlalchemy import func, desc, case, nullslast
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 
 from db.session import get_db
@@ -11,10 +11,10 @@ from models import (
 )
 from schemas import (
     ComplaintResponse, ComplaintListResponse, CategoryCreate, CategoryResponse,
-    DepartmentCreate, DepartmentResponse
+    DepartmentCreate, DepartmentResponse, AssessmentOverrideRequest
 )
 from common.auth import get_current_active_user, require_admin
-from common.exceptions import NotFoundException, ValidationException
+from common.exceptions import NotFoundException, ValidationException, ConflictException
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -67,6 +67,16 @@ async def get_dashboard_stats(
         Department.display_name,
         func.count(Complaint.id)
     ).outerjoin(Complaint).group_by(Department.display_name).all()
+
+    # By Priority Level
+    by_priority = db.query(
+        Complaint.priority_level,
+        func.count(Complaint.id)
+    ).group_by(Complaint.priority_level).all()
+
+    # Needs Review Count & Critical Count
+    needs_review_count = db.query(Complaint).filter(Complaint.needs_human_review == True).count()
+    critical_count = db.query(Complaint).filter(Complaint.priority_level == "critical").count()
     
     return {
         "open_complaints": open_count,
@@ -75,6 +85,9 @@ async def get_dashboard_stats(
         "by_category": [{"category": c, "count": n} for c, n in by_category],
         "by_status": [{"status": s.value, "count": n} for s, n in by_status],
         "by_department": [{"department": d or "Unassigned", "count": n} for d, n in by_department],
+        "by_priority": [{"priority": p or "unassessed", "count": n} for p, n in by_priority],
+        "needs_review_count": needs_review_count,
+        "critical_count": critical_count,
     }
 
 
@@ -85,8 +98,10 @@ async def list_all_complaints(
     status_filter: Optional[ComplaintStatus] = None,
     category_id: Optional[int] = None,
     department_id: Optional[int] = None,
+    priority_level: Optional[str] = None,
+    needs_human_review: Optional[bool] = None,
     search: Optional[str] = None,
-    sort_by: str = "upvote_count",
+    sort_by: str = "priority_score",
     sort_order: str = "desc",
     current_user = Depends(require_admin),
     db: Session = Depends(get_db)
@@ -100,19 +115,29 @@ async def list_all_complaints(
         query = query.filter(Complaint.category_id == category_id)
     if department_id:
         query = query.filter(Complaint.department_id == department_id)
+    if priority_level:
+        query = query.filter(Complaint.priority_level == priority_level.lower())
+    if needs_human_review is not None:
+        query = query.filter(Complaint.needs_human_review == needs_human_review)
     if search:
         query = query.filter(Complaint.description.ilike(f"%{search}%"))
     
     # Sorting
-    if sort_by == "upvote_count":
+    if sort_by == "priority_score":
+        sort_column = Complaint.priority_score
+    elif sort_by == "severity_score":
+        sort_column = Complaint.severity_score
+    elif sort_by == "urgency_score":
+        sort_column = Complaint.urgency_score
+    elif sort_by == "upvote_count":
         sort_column = Complaint.upvote_count
     elif sort_by == "created_at":
         sort_column = Complaint.created_at
     else:
-        sort_column = Complaint.upvote_count
+        sort_column = Complaint.priority_score
 
     if sort_order == "desc":
-        query = query.order_by(desc(sort_column))
+        query = query.order_by(nullslast(desc(sort_column)))
     else:
         query = query.order_by(sort_column)
     
@@ -137,6 +162,105 @@ async def get_complaint_detail(
     complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
     if not complaint:
         raise NotFoundException("Complaint not found")
+    return complaint
+
+
+@router.put("/complaints/{complaint_id}/assessment", response_model=ComplaintResponse)
+async def update_complaint_assessment(
+    complaint_id: int,
+    override: AssessmentOverrideRequest,
+    current_user = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Admin override or verification of complaint priority assessment"""
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+        
+    from complaint.assessment import calculate_priority_score
+    
+    if override.severity_score is not None:
+        complaint.severity_score = override.severity_score
+    if override.impact_score is not None:
+        complaint.impact_score = override.impact_score
+    if override.urgency_score is not None:
+        complaint.urgency_score = override.urgency_score
+    if override.is_safety_escalated is not None:
+        complaint.is_safety_escalated = override.is_safety_escalated
+    if override.needs_human_review is not None:
+        complaint.needs_human_review = override.needs_human_review
+    if override.admin_notes:
+        complaint.admin_override_reason = override.admin_notes
+        
+    complaint.admin_override = True
+    complaint.assessment_status = "completed"
+    
+    # Recalculate priority score and level
+    sev = complaint.severity_score if complaint.severity_score is not None else 40
+    imp = complaint.impact_score if complaint.impact_score is not None else 35
+    urg = complaint.urgency_score if complaint.urgency_score is not None else 35
+    
+    score, level = calculate_priority_score(
+        severity=sev,
+        impact=imp,
+        urgency=urg,
+        upvote_count=complaint.upvote_count,
+        is_safety_escalated=complaint.is_safety_escalated
+    )
+    complaint.priority_score = score
+    complaint.priority_level = level
+    complaint.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(complaint)
+    return complaint
+
+
+@router.post("/complaints/{complaint_id}/reassess", response_model=ComplaintResponse)
+async def reassess_complaint(
+    complaint_id: int,
+    current_user = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Trigger re-assessment using LLM priority service"""
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+        
+    from complaint.assessment import assess_complaint
+    category = db.query(Category).filter(Category.id == complaint.category_id).first()
+    cat_name = category.name if category else "general"
+    cat_display = category.display_name if category else "General Issue"
+    
+    assessment = await assess_complaint(
+        category_name=cat_name,
+        category_display=cat_display,
+        description=complaint.description,
+        location=complaint.location,
+        latitude=complaint.latitude,
+        longitude=complaint.longitude,
+        upvote_count=complaint.upvote_count
+    )
+    
+    complaint.severity_score = assessment.severity_score
+    complaint.impact_score = assessment.impact_score
+    complaint.urgency_score = assessment.urgency_score
+    complaint.priority_score = assessment.priority_score
+    complaint.priority_level = assessment.priority_level
+    complaint.assessment_status = assessment.assessment_status
+    complaint.assessment_reason = assessment.assessment_reason
+    complaint.assessment_confidence = assessment.assessment_confidence
+    complaint.missing_information = assessment.missing_information
+    complaint.needs_human_review = assessment.needs_human_review
+    complaint.is_safety_escalated = assessment.is_safety_escalated
+    complaint.ai_severity_score = assessment.ai_severity_score
+    complaint.ai_impact_score = assessment.ai_impact_score
+    complaint.ai_urgency_score = assessment.ai_urgency_score
+    complaint.ai_reason = assessment.ai_reason
+    complaint.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(complaint)
     return complaint
 
 
@@ -172,8 +296,9 @@ async def assign_complaint(
     db.add(history)
     
     db.commit()
+    db.refresh(complaint)
     
-    return {"message": "Complaint assigned successfully", "complaint": complaint}
+    return {"message": "Complaint assigned successfully", "complaint": ComplaintResponse.model_validate(complaint)}
 
 
 # Category management
@@ -244,6 +369,11 @@ async def create_department(
     db: Session = Depends(get_db)
 ):
     """Create new department"""
+    existing = db.query(Department).filter(
+        (Department.name == dept_data.name) | (Department.display_name == dept_data.display_name)
+    ).first()
+    if existing:
+        raise ConflictException("Department with this name or display name already exists")
     department = Department(**dept_data.model_dump())
     db.add(department)
     db.commit()
@@ -321,3 +451,12 @@ async def get_complaints_by_department(
         {"department": d or "Unassigned", "count": n}
         for d, n in results
     ]
+
+
+@router.get("/notifications/emails")
+async def get_recent_email_notifications(
+    current_user = Depends(require_admin)
+):
+    """Get log of recent email notifications sent to citizens"""
+    from common.email_service import SENT_EMAILS_LOG
+    return {"emails": SENT_EMAILS_LOG[-50:]}

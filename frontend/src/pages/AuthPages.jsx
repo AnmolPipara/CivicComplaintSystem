@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { useForm } from '../hooks/useForm'
 import { Button, Input, Card, CardContent, Alert } from '../components/UI'
-import { Shield, Mail, Lock, User, Eye, EyeOff, CheckCircle2, ArrowRight } from 'lucide-react'
+import { Shield, Mail, Lock, User, Eye, EyeOff, CheckCircle2, ArrowRight, Sparkles, MapPin, Navigation } from 'lucide-react'
 import { classNames } from '../utils/helpers'
+import { Logo } from '../components/LogoMark'
+import { MapPicker } from '../components/MapPicker'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -52,22 +54,23 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-surface-elevated flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-surface-elevated flex items-center justify-center p-4 bg-mesh relative overflow-hidden">
+      {/* Decorative background orbs */}
+      <div className="absolute top-1/4 -left-32 w-96 h-96 bg-primary-500/10 rounded-full blur-3xl animate-float" />
+      <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-accent-500/8 rounded-full blur-3xl animate-float" style={{ animationDelay: '3s' }} />
+      
+      <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="flex justify-center mb-8">
-          <Link to="/" className="flex items-center gap-2" aria-label="CivicSense Home">
-            <div className="w-12 h-12 rounded-xl bg-primary-500 flex items-center justify-center">
-              <Shield className="h-7 w-7 text-white" />
-            </div>
-            <span className="text-heading-xl font-bold text-text-primary">CivicSense</span>
+          <Link to="/" aria-label="JanSewa Home">
+            <Logo size="lg" />
           </Link>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm">
-          <CardContent className="p-6 sm:p-8">
+        <div className="card-glass border border-border-strong shadow-elevated">
+          <div className="p-6 sm:p-8">
             <div className="text-center mb-8">
-              <h1 className="text-heading-lg font-bold text-text-primary">Welcome Back</h1>
+              <h1 className="text-heading-lg font-bold text-text-primary tracking-tight">Welcome Back</h1>
               <p className="text-body text-text-secondary mt-2">Sign in to track complaints and report issues</p>
             </div>
 
@@ -107,7 +110,7 @@ export function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary"
+                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -118,11 +121,11 @@ export function LoginPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    className="w-4 h-4 rounded border-border text-primary-500 focus:ring-primary-500"
+                    className="w-4 h-4 rounded border-border-strong bg-surface-card text-primary-500 focus:ring-primary-500/30"
                   />
                   <span className="text-body-sm text-text-secondary">Remember me</span>
                 </label>
-                <Link to="/forgot-password" className="text-body-sm text-primary-500 hover:text-primary-600">
+                <Link to="/forgot-password" className="text-body-sm text-primary-400 hover:text-primary-300 transition-colors">
                   Forgot password?
                 </Link>
               </div>
@@ -133,12 +136,12 @@ export function LoginPage() {
               </Button>
             </form>
 
-            <div className="relative my-6">
+            <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-body-sm">
-                <span className="px-4 bg-white/80 backdrop-blur-sm text-text-muted">Or continue with</span>
+                <span className="px-4 bg-surface-card/80 backdrop-blur-sm text-text-muted">Or continue with</span>
               </div>
             </div>
 
@@ -153,14 +156,20 @@ export function LoginPage() {
               </Button>
             </div>
 
-            <p className="mt-6 text-center text-body-sm text-text-secondary">
+            <p className="mt-8 text-center text-body-sm text-text-secondary">
               Don't have an account?{' '}
-              <Link to="/register" className="text-primary-500 font-medium hover:text-primary-600">
+              <Link to="/register" className="text-primary-400 font-medium hover:text-primary-300 transition-colors">
                 Create one
               </Link>
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        {/* Trust signal */}
+        <p className="mt-6 text-center text-caption text-text-muted flex items-center justify-center gap-1.5">
+          <Shield className="h-3.5 w-3.5" />
+          Secured with end-to-end encryption
+        </p>
       </div>
     </div>
   )
@@ -179,13 +188,16 @@ export function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [termsAgreed, setTermsAgreed] = useState(false)
 
-  const { values, errors, handleChange, handleBlur, handleSubmit } = useForm({
+  const { values, errors, handleChange, handleBlur, handleSubmit, setFieldValue } = useForm({
     initialValues: {
       full_name: '',
       email: '',
       phone: '',
       password: '',
       confirmPassword: '',
+      address: '',
+      latitude: null,
+      longitude: null,
     },
     validate: (values) => {
       const errs = {}
@@ -203,13 +215,21 @@ export function RegisterPage() {
       setError('')
       setLoading(true)
       try {
-        const { confirmPassword, ...registrationData } = values
-        await register({
+        const { confirmPassword, address, latitude, longitude, ...registrationData } = values
+        const payload = {
           user_data: {
             ...registrationData,
             role,
           }
-        })
+        }
+        if (role === 'citizen' && latitude != null && longitude != null) {
+          payload.citizen_profile = {
+            address: address || undefined,
+            latitude: Number(latitude),
+            longitude: Number(longitude)
+          }
+        }
+        await register(payload)
         navigate('/dashboard')
       } catch (err) {
         let errMsg = 'Registration failed. Please try again.'
@@ -235,22 +255,23 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-surface-elevated flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-surface-elevated flex items-center justify-center p-4 bg-mesh relative overflow-hidden">
+      {/* Decorative background orbs */}
+      <div className="absolute top-1/3 -right-32 w-96 h-96 bg-primary-500/10 rounded-full blur-3xl animate-float" />
+      <div className="absolute bottom-1/3 -left-32 w-96 h-96 bg-accent-500/8 rounded-full blur-3xl animate-float" style={{ animationDelay: '2s' }} />
+
+      <div className="w-full max-w-md relative z-10">
         <div className="flex justify-center mb-8">
-          <Link to="/" className="flex items-center gap-2" aria-label="CivicSense Home">
-            <div className="w-12 h-12 rounded-xl bg-primary-500 flex items-center justify-center">
-              <Shield className="h-7 w-7 text-white" />
-            </div>
-            <span className="text-heading-xl font-bold text-text-primary">CivicSense</span>
+          <Link to="/" aria-label="JanSewa Home">
+            <Logo size="lg" />
           </Link>
         </div>
 
-        <Card className="bg-white/80 backdrop-blur-sm">
-          <CardContent className="p-6 sm:p-8">
+        <div className="card-glass border border-border-strong shadow-elevated">
+          <div className="p-6 sm:p-8">
             <div className="text-center mb-8">
-              <h1 className="text-heading-lg font-bold text-text-primary">Create Account</h1>
-              <p className="text-body text-text-secondary mt-2">Join CivicSense to report and track civic issues</p>
+              <h1 className="text-heading-lg font-bold text-text-primary tracking-tight">Create Account</h1>
+              <p className="text-body text-text-secondary mt-2">Join JanSewa to report and track civic issues</p>
             </div>
 
             {error && (
@@ -269,14 +290,14 @@ export function RegisterPage() {
                       type="button"
                       onClick={() => setRole(r)}
                       className={classNames(
-                        'flex items-center justify-center gap-2 px-4 py-3 rounded-button border-2 transition-all',
+                        'flex items-center justify-center gap-2 px-4 py-3 rounded-button border-2 transition-all duration-200',
                         role === r
-                          ? 'border-primary-500 bg-primary-50 text-primary-600'
-                          : 'border-border text-text-secondary hover:border-primary-300 hover:bg-surface-hover'
+                          ? 'border-primary-500 bg-primary-500/10 text-primary-400 shadow-glow-primary'
+                          : 'border-border-strong text-text-secondary hover:border-primary-500/30 hover:bg-surface-hover'
                       )}
                     >
-                      <User className="h-5 w-5" />
-                      <span className="capitalize">{r}</span>
+                      {r === 'citizen' ? <User className="h-5 w-5" /> : <Shield className="h-5 w-5" />}
+                      <span className="capitalize font-medium">{r}</span>
                     </button>
                   ))}
                 </div>
@@ -337,7 +358,7 @@ export function RegisterPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary"
+                  className="absolute right-3 top-[38px] text-text-muted hover:text-text-primary transition-colors"
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -357,6 +378,31 @@ export function RegisterPage() {
                 disabled={loading}
               />
 
+              {role === 'citizen' && (
+                <div className="pt-2 border-t border-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-body-sm font-medium text-text-primary flex items-center gap-1.5">
+                      <MapPin className="h-4 w-4 text-primary-400" />
+                      Community Location (Optional)
+                    </span>
+                    <span className="text-caption text-text-muted">Sets 25 km feed</span>
+                  </div>
+                  <p className="text-caption text-text-secondary">
+                    Set your neighborhood to immediately view and upvote local civic issues within 25 km. You can also set this later.
+                  </p>
+                  <div className="border border-border rounded-xl overflow-hidden shadow-sm">
+                    <MapPicker
+                      value={{ lat: values.latitude, lng: values.longitude, address: values.address }}
+                      onChange={(pos) => {
+                        setFieldValue('latitude', pos.lat)
+                        setFieldValue('longitude', pos.lng)
+                        if (pos.address) setFieldValue('address', pos.address)
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-start gap-2">
                 <input
                   type="checkbox"
@@ -364,13 +410,13 @@ export function RegisterPage() {
                   required
                   checked={termsAgreed}
                   onChange={(e) => setTermsAgreed(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-border text-primary-500 focus:ring-primary-500"
+                  className="mt-1 w-4 h-4 rounded border-border-strong bg-surface-card text-primary-500 focus:ring-primary-500/30"
                 />
                 <label htmlFor="terms" className="text-body-sm text-text-secondary">
                   I agree to the{' '}
-                  <Link to="/terms" className="text-primary-500 hover:underline">Terms of Service</Link>
+                  <Link to="/terms" className="text-primary-400 hover:underline">Terms of Service</Link>
                   {' '}and{' '}
-                  <Link to="/privacy" className="text-primary-500 hover:underline">Privacy Policy</Link>
+                  <Link to="/privacy" className="text-primary-400 hover:underline">Privacy Policy</Link>
                 </label>
               </div>
 
@@ -380,14 +426,14 @@ export function RegisterPage() {
               </Button>
             </form>
 
-            <p className="mt-6 text-center text-body-sm text-text-secondary">
+            <p className="mt-8 text-center text-body-sm text-text-secondary">
               Already have an account?{' '}
-              <Link to="/login" className="text-primary-500 font-medium hover:text-primary-600">
+              <Link to="/login" className="text-primary-400 font-medium hover:text-primary-300 transition-colors">
                 Sign in
               </Link>
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   )

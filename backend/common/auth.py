@@ -24,6 +24,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -88,6 +89,25 @@ async def get_current_active_user(
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+
+async def get_optional_current_user(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Retrieve user if valid bearer token is present, otherwise return None."""
+    if not token:
+        return None
+    try:
+        token_data = decode_token(token)
+        if token_data is None or token_data.user_id is None:
+            return None
+        user = db.query(User).filter(User.id == token_data.user_id).first()
+        if user and user.is_active:
+            return user
+    except Exception:
+        return None
+    return None
 
 
 def require_role(*allowed_roles: UserRole):

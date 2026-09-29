@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, Text, ForeignKey, Float
 from sqlalchemy.orm import relationship
 from .base import Base
 
@@ -28,12 +28,31 @@ class User(Base):
     admin_profile = relationship("Admin", back_populates="user", uselist=False)
     department_profile = relationship("Department", back_populates="user", uselist=False)
 
+    @property
+    def address(self):
+        return self.citizen_profile.address if self.citizen_profile else None
+
+    @property
+    def latitude(self):
+        return self.citizen_profile.latitude if self.citizen_profile else None
+
+    @property
+    def longitude(self):
+        return self.citizen_profile.longitude if self.citizen_profile else None
+
+    @property
+    def has_location(self) -> bool:
+        return bool(self.latitude is not None and self.longitude is not None)
+
+
 class Citizen(Base):
     __tablename__ = "citizens"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, index=True, nullable=False)
     address = Column(Text, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
     preferred_notification_channels = Column(String(100), default="email,push")
 
     user = relationship("User", back_populates="citizen_profile")

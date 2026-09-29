@@ -71,7 +71,8 @@ export function Input({
         {...props}
       />
       {error && (
-        <p id={errorId} className="mt-1.5 text-body-sm text-red-600" role="alert">
+        <p id={errorId} className="mt-1.5 text-body-sm text-red-400 flex items-center gap-1" role="alert">
+          <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           {error}
         </p>
       )}
@@ -106,7 +107,7 @@ export function Textarea({
         {...props}
       />
       {error && (
-        <p id={errorId} className="mt-1.5 text-body-sm text-red-600" role="alert">
+        <p id={errorId} className="mt-1.5 text-body-sm text-red-400" role="alert">
           {error}
         </p>
       )}
@@ -152,7 +153,7 @@ export function Select({
         ))}
       </select>
       {error && (
-        <p id={errorId} className="mt-1.5 text-body-sm text-red-600" role="alert">
+        <p id={errorId} className="mt-1.5 text-body-sm text-red-400" role="alert">
           {error}
         </p>
       )}
@@ -163,7 +164,7 @@ export function Select({
 export function Card({ children, className = '', hover = false, ...props }) {
   return (
     <div
-      className={classNames('card', hover && 'hover:shadow-card-hover cursor-pointer', className)}
+      className={classNames('card', hover && 'hover:shadow-card-hover hover:border-primary-500/20 cursor-pointer hover-lift', className)}
       {...props}
     >
       {children}
@@ -189,7 +190,7 @@ export function CardContent({ children, className = '', ...props }) {
 
 export function CardFooter({ children, className = '', ...props }) {
   return (
-    <div className={classNames('px-5 py-4 border-t border-border bg-surface-elevated', className)} {...props}>
+    <div className={classNames('px-5 py-4 border-t border-border bg-surface-hover/20', className)} {...props}>
       {children}
     </div>
   )
@@ -197,17 +198,18 @@ export function CardFooter({ children, className = '', ...props }) {
 
 export function Badge({ children, variant = 'default', className = '', icon, ...props }) {
   const variants = {
-    default: 'bg-surface-elevated text-text-secondary border border-border',
-    primary: 'bg-primary-100 text-primary-700 border-primary-200',
-    success: 'bg-green-100 text-green-700 border-green-200',
-    warning: 'bg-amber-100 text-amber-700 border-amber-200',
-    danger: 'bg-red-100 text-red-700 border-red-200',
-    info: 'bg-blue-100 text-blue-700 border-blue-200',
+    default: 'bg-surface-hover/50 text-text-secondary border-border',
+    primary: 'bg-primary-500/10 text-primary-400 border-primary-500/20',
+    success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    danger: 'bg-red-500/10 text-red-400 border-red-500/20',
+    info: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    accent: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   }
 
   return (
     <span
-      className={classNames('badge', variants[variant], className)}
+      className={classNames('badge rounded-badge font-semibold tracking-wide', variants[variant], className)}
       {...props}
     >
       {icon && <span className="mr-1.5 flex items-center">{icon}</span>}
@@ -220,7 +222,7 @@ export function PriorityBadge({ priority, showIcon = true, size = 'md' }) {
   const config = getPriorityConfig(priority)
   const sizes = {
     sm: 'px-2 py-0.5 text-caption gap-1',
-    md: 'px-2.5 py-0.5 text-body-sm gap-1.5',
+    md: 'px-2.5 py-1 text-body-sm gap-1.5',
     lg: 'px-3 py-1 text-body gap-2',
   }
 
@@ -229,7 +231,7 @@ export function PriorityBadge({ priority, showIcon = true, size = 'md' }) {
   return (
     <span
       className={classNames(
-        'inline-flex items-center font-medium rounded-full border',
+        'inline-flex items-center font-bold rounded-badge border uppercase tracking-wider',
         config.bg,
         config.border,
         config.text,
@@ -248,8 +250,8 @@ export function StatusBadge({ status, size = 'md' }) {
   const config = getStatusConfig(status)
   const sizes = {
     sm: 'px-2 py-0.5 text-caption gap-1',
-    md: 'px-2.5 py-0.5 text-body-sm gap-1.5',
-    lg: 'px-3 py-1 text-body gap-2',
+    md: 'px-2.5 py-1 text-body-sm gap-1.5',
+    lg: 'px-3 py-1.5 text-body gap-2',
   }
 
   const IconComponent = getIconComponent(config.icon)
@@ -257,7 +259,7 @@ export function StatusBadge({ status, size = 'md' }) {
   return (
     <span
       className={classNames(
-        'inline-flex items-center font-medium rounded-full border',
+        'inline-flex items-center font-semibold rounded-badge border',
         config.bg,
         config.border,
         config.text,
@@ -266,7 +268,7 @@ export function StatusBadge({ status, size = 'md' }) {
       role="status"
       aria-label={`Status: ${config.label}`}
     >
-      <IconComponent className={`h-4 w-4 ${config.text}`} aria-hidden="true" />
+      <IconComponent className={`h-3.5 w-3.5 ${config.text}`} aria-hidden="true" />
       <span>{config.label}</span>
     </span>
   )
@@ -390,11 +392,11 @@ export function Modal({ isOpen, onClose, title, children, className = '', size =
     <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className="fixed inset-0 bg-black/50 transition-opacity"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
           onClick={onClose}
           aria-hidden="true"
         />
-        <div className={classNames('relative w-full bg-white rounded-card shadow-elevated', sizes[size])}>
+        <div className={classNames('relative w-full bg-surface-card rounded-card shadow-elevated border border-border-strong animate-fade-in backdrop-blur-xl', sizes[size])}>
           {title && (
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 id="modal-title" className="text-heading-sm font-semibold text-text-primary">
@@ -402,10 +404,10 @@ export function Modal({ isOpen, onClose, title, children, className = '', size =
               </h2>
               <button
                 onClick={onClose}
-                className="btn-ghost p-1.5 rounded-lg hover:bg-surface-hover"
+                className="p-1.5 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
                 aria-label="Close modal"
               >
-                <X className="h-5 w-5 text-text-muted" />
+                <X className="h-5 w-5" />
               </button>
             </div>
           )}
@@ -418,10 +420,10 @@ export function Modal({ isOpen, onClose, title, children, className = '', size =
 
 export function Alert({ variant = 'info', title, children, className = '', onClose, dismissible = false }) {
   const variants = {
-    info: 'bg-blue-50 border-blue-200 text-blue-800',
-    success: 'bg-green-50 border-green-200 text-green-800',
-    warning: 'bg-amber-50 border-amber-200 text-amber-800',
-    danger: 'bg-red-50 border-red-200 text-red-800',
+    info: 'bg-blue-500/10 border-blue-500/20 text-blue-300',
+    success: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300',
+    warning: 'bg-amber-500/10 border-amber-500/20 text-amber-300',
+    danger: 'bg-red-500/10 border-red-500/20 text-red-300',
   }
 
   const icons = {
@@ -433,10 +435,44 @@ export function Alert({ variant = 'info', title, children, className = '', onClo
 
   const Icon = icons[variant]
 
+  // Safe renderer: prevents Minified React error #31 if an object or error array is passed as children
+  const renderSafeContent = () => {
+    if (children == null) return null
+    if (typeof children === 'string' || typeof children === 'number' || typeof children === 'boolean') {
+      return children
+    }
+    if (React.isValidElement(children)) {
+      return children
+    }
+    if (Array.isArray(children)) {
+      return children.map((item, idx) => {
+        if (React.isValidElement(item) || typeof item === 'string' || typeof item === 'number') {
+          return item
+        }
+        if (typeof item === 'object' && item !== null) {
+          const field = item.loc ? item.loc[item.loc.length - 1] : ''
+          const prefix = field && field !== 'body' && field !== 'query' ? `${field}: ` : ''
+          return (
+            <div key={idx} className="mt-0.5">
+              {prefix}{item.msg || JSON.stringify(item)}
+            </div>
+          )
+        }
+        return String(item)
+      })
+    }
+    if (typeof children === 'object') {
+      const msg = children.msg || children.message || children.detail
+      if (typeof msg === 'string') return msg
+      return JSON.stringify(children)
+    }
+    return String(children)
+  }
+
   return (
     <div
       className={classNames(
-        'flex gap-3 p-4 rounded-card border',
+        'flex gap-3 p-4 rounded-card border backdrop-blur-sm',
         variants[variant],
         className
       )}
@@ -445,12 +481,12 @@ export function Alert({ variant = 'info', title, children, className = '', onClo
       <Icon className="h-5 w-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
       <div className="flex-1">
         {title && <h4 className="font-medium mb-1">{title}</h4>}
-        <div className="text-body-sm">{children}</div>
+        <div className="text-body-sm opacity-90">{renderSafeContent()}</div>
       </div>
       {dismissible && onClose && (
         <button
           onClick={onClose}
-          className="flex-shrink-0 p-1 rounded hover:bg-black/5 transition-colors"
+          className="flex-shrink-0 p-1 rounded hover:bg-white/5 transition-colors"
           aria-label="Dismiss"
         >
           <X className="h-4 w-4" />
@@ -482,8 +518,8 @@ export function Skeleton({ className = '', variant = 'text', width, height, ...p
 
 export function EmptyState({ icon, title, description, action, className = '' }) {
   return (
-    <div className={classNames('flex flex-col items-center justify-center py-12 px-4 text-center', className)}>
-      <div className="w-16 h-16 rounded-full bg-surface-elevated flex items-center justify-center mb-4 text-text-muted">
+    <div className={classNames('flex flex-col items-center justify-center py-16 px-4 text-center', className)}>
+      <div className="w-16 h-16 rounded-2xl bg-surface-hover/50 flex items-center justify-center mb-5 text-text-muted border border-border">
         {icon && <icon className="h-8 w-8" />}
       </div>
       <h3 className="text-heading-sm font-semibold text-text-primary mb-2">{title}</h3>
@@ -504,7 +540,7 @@ export function LoadingState({ className = '', variant = 'spinner', size = 'md' 
     return (
       <div className={classNames('flex items-center justify-center', className)}>
         <svg className={`animate-spin text-primary-500 ${sizes[size]}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+          <circle cx="12" cy="12" r="10" strokeOpacity="0.15" />
           <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
         </svg>
       </div>
@@ -529,7 +565,7 @@ export function Tooltip({ content, children, position = 'top' }) {
       {visible && (
         <div
           className={classNames(
-            'absolute z-50 px-2 py-1.5 text-caption font-medium text-white bg-text-primary rounded-button shadow-elevated whitespace-nowrap',
+            'absolute z-50 px-2.5 py-1.5 text-caption font-medium text-white bg-surface-card rounded-lg shadow-elevated border border-border-strong whitespace-nowrap backdrop-blur-xl',
             position === 'top' && 'bottom-full left-1/2 -translate-x-1/2 mb-2',
             position === 'bottom' && 'top-full left-1/2 -translate-x-1/2 mt-2',
             position === 'left' && 'right-full top-1/2 -translate-y-1/2 mr-2',
