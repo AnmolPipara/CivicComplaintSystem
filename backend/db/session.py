@@ -7,7 +7,7 @@ from sqlalchemy.pool import NullPool
 
 from models.base import Base
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if not DATABASE_URL:
     raise RuntimeError(
@@ -15,6 +15,12 @@ if not DATABASE_URL:
         "Please set it in your .env file. "
         "Example: postgresql://user:password@localhost:5434/civic_complaints"
     )
+
+# Ensure compatibility with psycopg2 driver
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 engine = create_engine(
     DATABASE_URL,
