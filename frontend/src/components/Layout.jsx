@@ -141,22 +141,26 @@ export function Header() {
                           </div>
                         </button>
                       )}
-                      <NavLink
-                        to="/profile"
-                        onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                      >
-                        <User className="h-4 w-4" />
-                        Profile
-                      </NavLink>
-                      <NavLink
-                        to="/settings"
-                        onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
-                      >
-                        <Settings className="h-4 w-4" />
-                        Settings
-                      </NavLink>
+                      {isCitizen && (
+                        <>
+                          <NavLink
+                            to="/profile"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                          >
+                            <User className="h-4 w-4" />
+                            Profile
+                          </NavLink>
+                          <NavLink
+                            to="/settings"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="flex items-center gap-3 px-4 py-2.5 text-body-sm text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
+                          >
+                            <Settings className="h-4 w-4" />
+                            Settings
+                          </NavLink>
+                        </>
+                      )}
                       <hr className="my-1 border-border" />
                       <button
                         onClick={logout}
@@ -229,28 +233,32 @@ export function Header() {
                       Dashboard
                     </NavLink>
                   )}
-                  <NavLink
-                    to="/profile"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={classNames(
-                      'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
-                      location.pathname === '/profile' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
-                    )}
-                  >
-                    <User className="h-5 w-5" />
-                    Profile
-                  </NavLink>
-                  <NavLink
-                    to="/settings"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={classNames(
-                      'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
-                      location.pathname === '/settings' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
-                    )}
-                  >
-                    <Settings className="h-5 w-5" />
-                    Settings
-                  </NavLink>
+                  {isCitizen && (
+                    <>
+                      <NavLink
+                        to="/profile"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={classNames(
+                          'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
+                          location.pathname === '/profile' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
+                        )}
+                      >
+                        <User className="h-5 w-5" />
+                        Profile
+                      </NavLink>
+                      <NavLink
+                        to="/settings"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={classNames(
+                          'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
+                          location.pathname === '/settings' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
+                        )}
+                      >
+                        <Settings className="h-5 w-5" />
+                        Settings
+                      </NavLink>
+                    </>
+                  )}
                   <hr className="my-2 border-border" />
                   <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-body font-medium text-red-400 hover:bg-red-500/10 rounded-button transition-colors">
                     <LogOut className="h-5 w-5" />

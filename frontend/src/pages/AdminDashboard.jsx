@@ -602,7 +602,7 @@ export function AdminDashboard() {
                   <th className="pb-3 pt-4 px-4">Upvotes</th>
                   <th className="pb-3 pt-4 px-4">Status</th>
                   <th className="pb-3 pt-4 px-4 hidden md:table-cell">Department</th>
-                  <th className="pb-3 pt-4 px-4">Submitted</th>
+                  <th className="pb-3 pt-4 px-4">Submitted / Assigned</th>
                   <th className="pb-3 pt-4 px-4">Actions</th>
                 </tr>
               </thead>
@@ -686,9 +686,36 @@ export function AdminDashboard() {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <span className="text-body-sm text-text-muted">
-                        {formatRelativeTime(complaint.created_at)}
-                      </span>
+                      <div className="flex flex-col gap-1 min-w-[130px]">
+                        <div className="flex items-center gap-1.5 text-body-sm text-text-secondary">
+                          <Clock className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                          <div>
+                            <span className="text-[10px] uppercase font-semibold text-text-muted block leading-none">Submitted</span>
+                            <span title={formatDateTime(complaint.created_at)} className="text-body-sm text-text-secondary">
+                              {formatRelativeTime(complaint.created_at)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-body-sm pt-1 border-t border-border/40">
+                          <CheckCircle2 className={classNames('w-3.5 h-3.5 shrink-0', (complaint.assigned_at || complaint.department) ? 'text-primary-400' : 'text-text-muted')} />
+                          <div>
+                            <span className="text-[10px] uppercase font-semibold text-text-muted block leading-none">Assigned</span>
+                            {complaint.assigned_at ? (
+                              <span className="text-body-sm text-primary-400 font-medium" title={formatDateTime(complaint.assigned_at)}>
+                                {formatRelativeTime(complaint.assigned_at)}
+                              </span>
+                            ) : complaint.department ? (
+                              <span className="text-body-sm text-primary-400 font-medium" title={`Assigned with category: ${formatDateTime(complaint.created_at)}`}>
+                                {formatRelativeTime(complaint.created_at)}
+                              </span>
+                            ) : (
+                              <span className="text-caption text-text-muted italic">
+                                Not assigned
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </td>
                     <td className="py-4 px-4">
                       <div className="flex items-center gap-2 flex-wrap">
