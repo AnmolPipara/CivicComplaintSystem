@@ -308,11 +308,18 @@ export function MapPicker({ value, onChange }) {
         const resultLat = parseFloat(data[0].lat);
         const resultLng = parseFloat(data[0].lon || data[0].lng);
         const latlng = { lat: resultLat, lng: resultLng };
-        handleSelectPosition(latlng);
+        const formatted = formatNominatimAddress(data[0], resultLat, resultLng);
+
+        setPosition(latlng);
+        setDerivedAddress(formatted);
         setFlyTarget([resultLat, resultLng]);
-        setFlyZoom(15);
+        setFlyZoom(16);
+
+        if (onChange) {
+          onChange({ lat: resultLat, lng: resultLng, address: formatted });
+        }
       } else {
-        alert(`No location found matching "${searchQuery}".`);
+        alert(`No location found matching "${searchQuery}". Please check spelling or click directly on the map.`);
       }
     } catch (err) {
       console.error('Search error:', err);

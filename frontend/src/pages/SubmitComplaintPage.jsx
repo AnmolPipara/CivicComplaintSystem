@@ -82,7 +82,7 @@ export function SubmitComplaintPage() {
   })
 
   // Geocode location query to suggestions using backend geocode proxy with direct fallback
-  const searchGeocodeLocation = async (query, autoPin = false) => {
+  const searchGeocodeLocation = async (query, autoPin = false, refineText = true) => {
     if (!query || query.trim().length < 3) {
       setLocationSuggestions([])
       setIsSearchingLocation(false)
@@ -108,7 +108,7 @@ export function SubmitComplaintPage() {
         setShowLocationDropdown(true)
 
         if (autoPin) {
-          handleSelectLocationSuggestion(data[0])
+          handleSelectLocationSuggestion(data[0], refineText)
         }
       } else {
         setLocationSuggestions([])
@@ -122,7 +122,7 @@ export function SubmitComplaintPage() {
     }
   }
 
-  // Handle location input change with debounced geocoding
+  // Handle location input change with debounced geocoding and auto-pinning
   const handleLocationInputChange = (e) => {
     const val = e.target.value
     setFieldValue('location', val)
@@ -135,8 +135,9 @@ export function SubmitComplaintPage() {
     if (val.trim().length >= 3) {
       setIsSearchingLocation(true)
       searchTimeoutRef.current = setTimeout(() => {
-        searchGeocodeLocation(val, false)
-      }, 400)
+        // Automatically geocode and pin the top match on the map without overwriting user's typing text
+        searchGeocodeLocation(val, true, false)
+      }, 500)
     } else {
       setLocationSuggestions([])
       setShowLocationDropdown(false)
@@ -145,24 +146,38 @@ export function SubmitComplaintPage() {
   }
 
   // Select a location suggestion: automatically mark map and refine address
-  const handleSelectLocationSuggestion = (item) => {
+  const handleSelectLocationSuggestion = (item, refineText = true) => {
     const lat = parseFloat(item.lat)
     const lng = parseFloat(item.lon || item.lng)
     const refinedAddress = formatNominatimAddress(item, lat, lng)
 
-    setFieldValue('location', refinedAddress)
+    if (refineText) {
+      setFieldValue('location', refinedAddress)
+      setShowLocationDropdown(false)
+      setLocationSuggestions([])
+    }
     setFieldValue('latitude', lat)
     setFieldValue('longitude', lng)
     setLocationAutoPinned(true)
-    setShowLocationDropdown(false)
-    setLocationSuggestions([])
   }
 
   // Trigger geocode immediately and pick best match
   const handleTriggerGeocode = async (e) => {
     if (e) e.preventDefault()
     if (!values.location.trim()) return
-    searchGeocodeLocation(values.location.trim(), true)
+    searchGeocodeLocation(values.location.trim(), true, true)
+  }
+
+  // Auto-pin on blur if location has text but hasn't been pinned yet
+  const handleLocationBlur = (e) => {
+    handleBlur(e)
+    if (values.location.trim().length >= 3 && (!values.latitude || !locationAutoPinned)) {
+      if (locationSuggestions.length > 0) {
+        handleSelectLocationSuggestion(locationSuggestions[0], true)
+      } else {
+        searchGeocodeLocation(values.location.trim(), true, true)
+      }
+    }
   }
 
   // Close dropdown on click outside
@@ -294,7 +309,7 @@ export function SubmitComplaintPage() {
                       name="location"
                       value={values.location}
                       onChange={handleLocationInputChange}
-                      onBlur={handleBlur}
+                      onBlur={handleLocationBlur}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault()
@@ -336,7 +351,10 @@ export function SubmitComplaintPage() {
 
                   {/* Suggestion Dropdown */}
                   {showLocationDropdown && locationSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-card border border-border-strong shadow-2xl overflow-hidden backdrop-blur-lg divide-y divide-border/60">
+                    <div 
+                      onMouseDown={(e) => e.preventDefault()}
+                      className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-card border border-border-strong shadow-2xl overflow-hidden backdrop-blur-lg divide-y divide-border/60"
+                    >
                       <div className="p-2 bg-surface-elevated/70 text-[11px] font-semibold text-text-muted uppercase tracking-wider flex items-center justify-between">
                         <span>Matching Locations (Click to auto-mark on map)</span>
                         <span className="text-primary-400">Auto-Refines Address</span>
@@ -388,7 +406,9 @@ export function SubmitComplaintPage() {
                     onChange={(pos) => {
                       setFieldValue('latitude', pos.lat);
                       setFieldValue('longitude', pos.lng);
-                      if (pos.address) {
+                      if (pos.lat == null && pos.lng == null) {
+                        setLocationAutoPinned(false);
+                      } else if (pos.address) {
                         setFieldValue('location', pos.address);
                         setLocationAutoPinned(true);
                       }
