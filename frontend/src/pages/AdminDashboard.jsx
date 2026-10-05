@@ -574,7 +574,13 @@ export function AdminDashboard() {
           )}
           {isAdmin && filters.department_id && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
-              Dept: {departments.find(d => String(d.id) === String(filters.department_id))?.display_name || filters.department_id}
+              Dept: {
+                filters.department_id === 'unassigned'
+                  ? 'Unassigned'
+                  : filters.department_id === 'assigned'
+                  ? 'All Assigned'
+                  : departments.find(d => String(d.id) === String(filters.department_id))?.display_name || filters.department_id
+              }
               <button type="button" onClick={() => handleFilterChange('department_id', '')} aria-label="Remove department filter"><X className="h-3 w-3" /></button>
             </span>
           )}
@@ -680,10 +686,12 @@ export function AdminDashboard() {
                 <select
                   value={filters.department_id}
                   onChange={(e) => handleFilterChange('department_id', e.target.value)}
-                  className="input w-auto min-w-[160px] bg-[#141e35] text-slate-100"
+                  className="input w-auto min-w-[175px] bg-[#141e35] text-slate-100"
                   aria-label="Filter by department"
                 >
                   <option value="" className="bg-[#141e35] text-slate-100">All Departments</option>
+                  <option value="unassigned" className="bg-[#141e35] text-amber-300 font-medium">Unassigned</option>
+                  <option value="assigned" className="bg-[#141e35] text-emerald-300 font-medium">All Assigned</option>
                   {departments.map((dept) => (
                     <option key={dept.id} value={dept.id} className="bg-[#141e35] text-slate-100">{dept.display_name}</option>
                   ))}
@@ -751,7 +759,13 @@ export function AdminDashboard() {
                 )}
                 {isAdmin && filters.department_id && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
-                    Dept: {departments.find(d => String(d.id) === String(filters.department_id))?.display_name || filters.department_id}
+                    Dept: {
+                      filters.department_id === 'unassigned'
+                        ? 'Unassigned'
+                        : filters.department_id === 'assigned'
+                        ? 'All Assigned'
+                        : departments.find(d => String(d.id) === String(filters.department_id))?.display_name || filters.department_id
+                    }
                     <button type="button" onClick={() => handleFilterChange('department_id', '')}><X className="h-3 w-3" /></button>
                   </span>
                 )}

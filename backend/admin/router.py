@@ -98,7 +98,7 @@ async def list_all_complaints(
     page_size: int = 50,
     status_filter: Optional[ComplaintStatus] = None,
     category_id: Optional[int] = None,
-    department_id: Optional[int] = None,
+    department_id: Optional[str] = None,
     priority_level: Optional[str] = None,
     needs_human_review: Optional[bool] = None,
     search: Optional[str] = None,
@@ -115,7 +115,13 @@ async def list_all_complaints(
     if category_id:
         query = query.filter(Complaint.category_id == category_id)
     if department_id:
-        query = query.filter(Complaint.department_id == department_id)
+        dept_val = str(department_id).strip().lower()
+        if dept_val == "unassigned":
+            query = query.filter(Complaint.department_id.is_(None))
+        elif dept_val == "assigned":
+            query = query.filter(Complaint.department_id.isnot(None))
+        elif dept_val.isdigit():
+            query = query.filter(Complaint.department_id == int(dept_val))
     if priority_level:
         query = query.filter(Complaint.priority_level == priority_level.lower())
     if needs_human_review is not None:
