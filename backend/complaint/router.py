@@ -20,6 +20,9 @@ from common.auth import get_current_active_user, get_optional_current_user, requ
 from common.exceptions import NotFoundException, ValidationException, ForbiddenException, UnauthorizedException
 from common.geo import get_visibility_radius_km, calculate_haversine_distance_km, get_haversine_sql_expression
 from common.email_service import send_complaint_notification
+import logging
+
+logger = logging.getLogger("civic.complaint")
 
 router = APIRouter(prefix="/api/complaints", tags=["complaints"])
 
@@ -456,29 +459,40 @@ async def update_complaint(
             )
             db.add(history)
             
+            old_val = (old_status.value if hasattr(old_status, 'value') else str(old_status)).lower() if old_status else ""
+            new_val = (update_data.status.value if hasattr(update_data.status, 'value') else str(update_data.status)).lower() if update_data.status else ""
+
             # Update timestamps
-            if update_data.status == ComplaintStatus.WORKING and not complaint.started_at:
+            if new_val == "working" and not complaint.started_at:
                 complaint.started_at = datetime.utcnow()
-            elif update_data.status == ComplaintStatus.COMPLETED and not complaint.resolved_at:
+            elif new_val == "completed" and not complaint.resolved_at:
                 complaint.resolved_at = datetime.utcnow()
             
             # Send email notification to citizen on status progression
-            if old_status != update_data.status and update_data.status in (ComplaintStatus.WORKING, ComplaintStatus.COMPLETED):
+            if (old_val != new_val) and new_val in ("working", "completed"):
                 citizen = db.query(Citizen).filter(Citizen.id == complaint.citizen_id).first()
                 citizen_user = citizen.user if citizen else None
                 if citizen_user and citizen_user.email:
                     cat_obj = db.query(Category).filter(Category.id == complaint.category_id).first()
                     cat_name = cat_obj.display_name if cat_obj else "Civic Complaint"
-                    event_type = "working" if update_data.status == ComplaintStatus.WORKING else "completed"
+                    event_type = "working" if new_val == "working" else "completed"
+                    recipient_email = str(citizen_user.email).strip()
+                    recipient_name = str(citizen_user.full_name or "Citizen").strip()
+                    loc_str = str(complaint.location or "Reported Location")
+                    desc_str = str(complaint.description or "")
+                    
+                    logger.info(
+                        f"Dispatching citizen email notification for complaint #{complaint.id} -> event: {event_type} to {recipient_email}"
+                    )
                     background_tasks.add_task(
                         send_complaint_notification,
                         event_type=event_type,
                         complaint_id=complaint.id,
-                        recipient_email=citizen_user.email,
-                        recipient_name=citizen_user.full_name,
+                        recipient_email=recipient_email,
+                        recipient_name=recipient_name,
                         category_name=cat_name,
-                        location=complaint.location,
-                        description=complaint.description,
+                        location=loc_str,
+                        description=desc_str,
                         timestamp=datetime.utcnow()
                     )
         

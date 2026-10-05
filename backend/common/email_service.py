@@ -24,13 +24,27 @@ def is_email_enabled() -> bool:
 
 
 def get_smtp_config() -> Dict[str, Any]:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False)
+        load_dotenv(".env", override=False)
+    except Exception:
+        pass
+
+    host = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user = (os.getenv("SMTP_USER") or "anmolpipara@gmail.com").strip()
+    password = (os.getenv("SMTP_PASSWORD") or "xbzs bzzd yadq jfoa").replace(" ", "").strip()
+    from_email = (os.getenv("SMTP_FROM_EMAIL") or f"JanSewa Civic Support <{user}>").strip()
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+
     return {
-        "host": os.getenv("SMTP_HOST", ""),
-        "port": int(os.getenv("SMTP_PORT", "587")),
-        "user": os.getenv("SMTP_USER", ""),
-        "password": os.getenv("SMTP_PASSWORD", ""),
-        "from_email": os.getenv("SMTP_FROM_EMAIL", "JanSewa Civic Support <support@jansewa.gov>"),
-        "use_tls": os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes"),
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "from_email": from_email,
+        "use_tls": use_tls,
     }
 
 
