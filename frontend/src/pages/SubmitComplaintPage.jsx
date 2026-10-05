@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { complaintAPI } from '../services/api'
+import { complaintAPI, geocodeAPI } from '../services/api'
 import { useForm } from '../hooks/useForm'
 import { Button, Input, Textarea, Card, CardContent, Alert, Badge } from '../components/UI'
 import { Camera, X, CheckCircle2, ArrowRight, MapPin, Search, Loader2, Sparkles } from 'lucide-react'
@@ -81,8 +81,8 @@ export function SubmitComplaintPage() {
     },
   })
 
-  // Geocode location query to suggestions using Nominatim
-  const searchGeocodeLocation = async (query) => {
+  // Geocode location query to suggestions using backend geocode proxy with direct fallback
+  const searchGeocodeLocation = async (query, autoPin = false) => {
     if (!query || query.trim().length < 3) {
       setLocationSuggestions([])
       setIsSearchingLocation(false)
@@ -90,23 +90,29 @@ export function SubmitComplaintPage() {
     }
     setIsSearchingLocation(true)
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=5`,
-        { headers: { Accept: 'application/json' } }
-      )
-      if (!res.ok) throw new Error('Search failed')
-      const data = await res.json()
+      let data = []
+      try {
+        const res = await geocodeAPI.search(query.trim(), 5)
+        data = Array.isArray(res.data) ? res.data : []
+      } catch (backendErr) {
+        // Fallback to direct Nominatim if backend proxy is temporarily unreachable
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=5`,
+          { headers: { Accept: 'application/json' } }
+        )
+        if (res.ok) data = await res.json()
+      }
+
       if (Array.isArray(data) && data.length > 0) {
         setLocationSuggestions(data)
         setShowLocationDropdown(true)
+
+        if (autoPin) {
+          handleSelectLocationSuggestion(data[0])
+        }
       } else {
-        const fallbackRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&limit=5`,
-          { headers: { Accept: 'application/json' } }
-        )
-        const fallbackData = await fallbackRes.json()
-        setLocationSuggestions(Array.isArray(fallbackData) ? fallbackData : [])
-        setShowLocationDropdown(Array.isArray(fallbackData) && fallbackData.length > 0)
+        setLocationSuggestions([])
+        setShowLocationDropdown(false)
       }
     } catch (err) {
       console.warn('Geocoding search failed:', err)
@@ -129,8 +135,8 @@ export function SubmitComplaintPage() {
     if (val.trim().length >= 3) {
       setIsSearchingLocation(true)
       searchTimeoutRef.current = setTimeout(() => {
-        searchGeocodeLocation(val)
-      }, 500)
+        searchGeocodeLocation(val, false)
+      }, 400)
     } else {
       setLocationSuggestions([])
       setShowLocationDropdown(false)
@@ -141,7 +147,7 @@ export function SubmitComplaintPage() {
   // Select a location suggestion: automatically mark map and refine address
   const handleSelectLocationSuggestion = (item) => {
     const lat = parseFloat(item.lat)
-    const lng = parseFloat(item.lon)
+    const lng = parseFloat(item.lon || item.lng)
     const refinedAddress = formatNominatimAddress(item, lat, lng)
 
     setFieldValue('location', refinedAddress)
@@ -156,21 +162,7 @@ export function SubmitComplaintPage() {
   const handleTriggerGeocode = async (e) => {
     if (e) e.preventDefault()
     if (!values.location.trim()) return
-    setIsSearchingLocation(true)
-    try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(values.location)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=1`,
-        { headers: { Accept: 'application/json' } }
-      )
-      const data = await res.json()
-      if (Array.isArray(data) && data.length > 0) {
-        handleSelectLocationSuggestion(data[0])
-      }
-    } catch (err) {
-      console.warn('Manual geocode error:', err)
-    } finally {
-      setIsSearchingLocation(false)
-    }
+    searchGeocodeLocation(values.location.trim(), true)
   }
 
   // Close dropdown on click outside

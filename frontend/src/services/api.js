@@ -124,6 +124,11 @@ export const complaintAPI = {
   delete: (id) => api.delete(`/complaints/${id}`),
 }
 
+export const geocodeAPI = {
+  search: (query, limit = 5) => api.get('/geocode/search', { params: { q: query, limit } }),
+  reverse: (lat, lon) => api.get('/geocode/reverse', { params: { lat, lon } }),
+}
+
 export const priorityAPI = {
   calculate: (data) => api.post('/priority/calculate', data),
   recalculate: (id) => api.post(`/priority/recalculate/${id}`),

@@ -11,6 +11,7 @@ from db.session import engine
 from auth.router import router as auth_router
 from complaint.router import router as complaint_router
 from admin.router import router as admin_router
+from geocode.router import router as geocode_router
 
 
 @asynccontextmanager
@@ -53,6 +54,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(complaint_router)
 app.include_router(admin_router)
+app.include_router(geocode_router)
 
 
 # Health check

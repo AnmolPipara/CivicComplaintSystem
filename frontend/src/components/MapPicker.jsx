@@ -14,6 +14,7 @@ import {
   Check, 
   Sparkles 
 } from 'lucide-react';
+import { geocodeAPI } from '../services/api';
 
 // Default to center of India
 const INDIA_CENTER = [20.5937, 78.9629];
@@ -195,16 +196,21 @@ export function MapPicker({ value, onChange }) {
     // 2. Automatically derive location using exact clicked coordinates
     setIsDeriving(true);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${exactCoordinates.lat}&lon=${exactCoordinates.lng}&format=jsonv2&addressdetails=1`,
-        {
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        }
-      );
-
-      if (!res.ok) throw new Error('Reverse geocoding HTTP error');
-      const data = await res.json();
+      let data = null;
+      try {
+        const apiRes = await geocodeAPI.reverse(exactCoordinates.lat, exactCoordinates.lng);
+        data = apiRes.data;
+      } catch (proxyErr) {
+        // Fallback to direct Nominatim if backend proxy is temporarily unreachable
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${exactCoordinates.lat}&lon=${exactCoordinates.lng}&format=jsonv2&addressdetails=1`,
+          {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal,
+          }
+        );
+        if (res.ok) data = await res.json();
+      }
 
       // RACE CONDITION CHECK:
       // If a newer click occurred while this request was in-flight, ignore this stale response!
@@ -281,27 +287,36 @@ export function MapPicker({ value, onChange }) {
 
   // Search locality or landmark
   const handleSearch = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1`,
-        { headers: { Accept: 'application/json' } }
-      );
-      const data = await res.json();
-      if (data && data.length > 0) {
+      let data = [];
+      try {
+        const apiRes = await geocodeAPI.search(searchQuery.trim(), 1);
+        data = Array.isArray(apiRes.data) ? apiRes.data : [];
+      } catch (proxyErr) {
+        // Fallback to direct Nominatim if backend proxy is temporarily unreachable
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=1`,
+          { headers: { Accept: 'application/json' } }
+        );
+        if (res.ok) data = await res.json();
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
         const resultLat = parseFloat(data[0].lat);
-        const resultLng = parseFloat(data[0].lon);
+        const resultLng = parseFloat(data[0].lon || data[0].lng);
         const latlng = { lat: resultLat, lng: resultLng };
         handleSelectPosition(latlng);
         setFlyTarget([resultLat, resultLng]);
-        setFlyZoom(16);
+        setFlyZoom(15);
       } else {
         alert(`No location found matching "${searchQuery}".`);
       }
     } catch (err) {
       console.error('Search error:', err);
+      alert(`Could not find "${searchQuery}". Please click directly on the map.`);
     } finally {
       setSearching(false);
     }
