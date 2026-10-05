@@ -7,9 +7,10 @@ import {
   MapPin, Clock, Info, FileText, Flag, 
   UserCheck, Loader, CheckCircle2, XCircle,
   ArrowLeft, ThumbsUp, ChevronLeft, ChevronRight,
-  Sparkles, AlertTriangle, Shield, RefreshCw, Edit, Scale, Navigation
+  Sparkles, AlertTriangle, Shield, RefreshCw, Edit, Scale, Navigation,
+  Mail, Phone, Copy, Check, ExternalLink, User, Home, ShieldCheck
 } from 'lucide-react'
-import { formatDateTime, formatRelativeTime, getStatusConfig, classNames, getInitials, generateAvatarColor, formatErrorMessage, calculateDistanceKm } from '../utils/helpers'
+import { formatDateTime, formatDate, formatRelativeTime, getStatusConfig, classNames, getInitials, generateAvatarColor, formatErrorMessage, calculateDistanceKm } from '../utils/helpers'
 import { LocationModal } from '../components/LocationModal'
 
 const STATUS_ORDER = ['pending', 'working', 'completed']
@@ -55,11 +56,26 @@ export function ComplaintDetailPage() {
   const [showLocationModal, setShowLocationModal] = useState(false)
   const [upvoteMessage, setUpvoteMessage] = useState(null)
 
+  // Applicant details state
+  const [applicant, setApplicant] = useState(null)
+  const [loadingApplicant, setLoadingApplicant] = useState(false)
+  const [copiedField, setCopiedField] = useState(null)
+
+  const handleCopy = (text, field) => {
+    if (!text) return
+    navigator.clipboard.writeText(text)
+    setCopiedField(field)
+    setTimeout(() => setCopiedField(null), 2000)
+  }
+
   const fetchComplaint = async () => {
     try {
       setLoading(true)
       const response = await complaintAPI.get(id)
       setComplaint(response.data)
+      if (response.data?.applicant || response.data?.citizen_details) {
+        setApplicant(response.data.applicant || response.data.citizen_details)
+      }
       setError(null)
     } catch (err) {
       setError(formatErrorMessage(err, 'Failed to load complaint'))
@@ -71,6 +87,26 @@ export function ComplaintDetailPage() {
   useEffect(() => {
     fetchComplaint()
   }, [id])
+
+  useEffect(() => {
+    if (complaint?.applicant || complaint?.citizen_details) {
+      setApplicant(complaint.applicant || complaint.citizen_details)
+    } else if (complaint && (isAdmin || isDepartment)) {
+      setLoadingApplicant(true)
+      const fetchApp = isAdmin ? adminAPI.applicantDetail(id) : complaintAPI.getApplicant(id)
+      fetchApp
+        .then(res => setApplicant(res.data))
+        .catch(err => {
+          console.log('Applicant fetch fallback error:', err)
+          if (isAdmin) {
+            complaintAPI.getApplicant(id)
+              .then(res2 => setApplicant(res2.data))
+              .catch(() => {})
+          }
+        })
+        .finally(() => setLoadingApplicant(false))
+    }
+  }, [complaint, isAdmin, isDepartment, id])
 
   useEffect(() => {
     if (isAdmin) {
@@ -713,6 +749,186 @@ export function ComplaintDetailPage() {
               )}
             </CardContent>
           </Card>
+          )}
+
+          {/* Applicant Details Card (Admin & Department Admin Only) */}
+          {(isAdmin || isDepartment) && (
+            <Card className="border border-primary-500/30 shadow-card bg-surface-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-primary-500/15 via-surface-card to-accent-500/10 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-primary-500/20 text-primary-400">
+                    <UserCheck className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-heading-sm font-semibold text-text-primary">Person Applying</h2>
+                    <p className="text-[11px] text-text-muted">Complainant / Citizen Details</p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <ShieldCheck className="w-3 h-3" />
+                  Verified Citizen
+                </span>
+              </div>
+
+              <CardContent className="p-5 space-y-4">
+                {loadingApplicant && !applicant ? (
+                  <div className="py-6 text-center text-text-muted">
+                    <Loader className="h-5 w-5 animate-spin mx-auto mb-2 text-primary-400" />
+                    <p className="text-body-sm">Loading applicant details...</p>
+                  </div>
+                ) : applicant ? (
+                  <>
+                    {/* Profile Header */}
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-elevated/70 border border-border">
+                      <div
+                        className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-base text-white shadow-sm flex-shrink-0"
+                        style={{ backgroundColor: generateAvatarColor(applicant.full_name || 'Citizen') }}
+                      >
+                        {getInitials(applicant.full_name || 'Citizen')}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-text-primary text-base truncate">
+                          {applicant.full_name || 'Anonymous Citizen'}
+                        </h3>
+                        <p className="text-caption text-text-muted flex items-center gap-1.5 mt-0.5">
+                          <span>Citizen ID: #{applicant.id}</span>
+                          <span>•</span>
+                          <span>User #{applicant.user_id}</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Contact Details */}
+                    <div className="space-y-2.5 text-body-sm">
+                      {/* Email */}
+                      <div className="p-2.5 rounded-lg bg-surface-elevated/40 border border-border/60 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Mail className="h-4 w-4 text-primary-400 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">Email Address</span>
+                            <a
+                              href={`mailto:${applicant.email}?subject=JanSewa Complaint %23${complaint.id}: ${encodeURIComponent(complaint.category?.display_name || 'Civic Issue')}`}
+                              className="text-text-primary hover:text-primary-400 font-medium truncate block transition-colors"
+                            >
+                              {applicant.email}
+                            </a>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(applicant.email, 'email')}
+                          className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-hover transition-colors"
+                          title="Copy Email"
+                        >
+                          {copiedField === 'email' ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+
+                      {/* Phone */}
+                      <div className="p-2.5 rounded-lg bg-surface-elevated/40 border border-border/60 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Phone className="h-4 w-4 text-emerald-400 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">Phone Number</span>
+                            {applicant.phone ? (
+                              <a
+                                href={`tel:${applicant.phone}`}
+                                className="text-text-primary hover:text-emerald-400 font-medium font-mono truncate block transition-colors"
+                              >
+                                {applicant.phone}
+                              </a>
+                            ) : (
+                              <span className="text-text-muted italic">Not provided</span>
+                            )}
+                          </div>
+                        </div>
+                        {applicant.phone && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(applicant.phone, 'phone')}
+                            className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-hover transition-colors"
+                            title="Copy Phone"
+                          >
+                            {copiedField === 'phone' ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Address */}
+                      <div className="p-2.5 rounded-lg bg-surface-elevated/40 border border-border/60 flex items-start gap-2">
+                        <Home className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">Citizen's Saved Address</span>
+                          <p className="text-text-secondary text-body-sm leading-relaxed">
+                            {applicant.address || 'No saved neighborhood address on file'}
+                          </p>
+                          {applicant.latitude != null && applicant.longitude != null && (
+                            <div className="mt-1 flex items-center gap-2 text-[11px] text-text-muted font-mono">
+                              <span>Location: {applicant.latitude.toFixed(4)}, {applicant.longitude.toFixed(4)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Relative Proximity to Incident */}
+                      {applicant.latitude != null && complaint?.latitude != null && (() => {
+                        const dist = calculateDistanceKm(applicant.latitude, applicant.longitude, complaint.latitude, complaint.longitude)
+                        if (dist == null) return null
+                        return (
+                          <div className="p-2.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300 flex items-center gap-2">
+                            <Navigation className="h-4 w-4 text-primary-400 shrink-0" />
+                            <span>
+                              Applicant lives <strong>{dist <= 0.1 ? '< 100m' : `${dist.toFixed(1)} km`}</strong> from this incident
+                              {dist <= 1.0 ? ' (Immediate Resident)' : ''}
+                            </span>
+                          </div>
+                        )
+                      })()}
+
+                      {/* Registration and Channels */}
+                      <div className="pt-2 border-t border-border flex flex-col gap-1.5 text-xs text-text-muted">
+                        {applicant.registered_at && (
+                          <div className="flex justify-between items-center">
+                            <span>Member Since:</span>
+                            <span className="font-medium text-text-secondary">{formatDate(applicant.registered_at)}</span>
+                          </div>
+                        )}
+                        {applicant.preferred_notification_channels && (
+                          <div className="flex justify-between items-center">
+                            <span>Notification Preferences:</span>
+                            <span className="font-medium text-text-secondary capitalize">{applicant.preferred_notification_channels}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick Action Contact Buttons */}
+                    <div className="pt-2 flex gap-2">
+                      <a
+                        href={`mailto:${applicant.email}?subject=JanSewa Complaint %23${complaint.id}: ${encodeURIComponent(complaint.category?.display_name || 'Civic Issue')}`}
+                        className="btn-primary flex-1 text-xs py-2 justify-center flex items-center gap-1.5"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        Email Citizen
+                      </a>
+                      {applicant.phone && (
+                        <a
+                          href={`tel:${applicant.phone}`}
+                          className="btn-secondary flex-1 text-xs py-2 justify-center flex items-center gap-1.5 text-emerald-400 hover:text-emerald-300"
+                        >
+                          <Phone className="h-3.5 w-3.5" />
+                          Call
+                        </a>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-4 text-center text-text-muted text-body-sm">
+                    No applicant details available.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Info Card */}

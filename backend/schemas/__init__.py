@@ -173,6 +173,30 @@ class ComplaintStatusHistoryResponse(BaseModel):
         return dt.isoformat().replace("+00:00", "Z")
 
 
+class ComplainantResponse(BaseModel):
+    id: int
+    user_id: int
+    full_name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    registered_at: Optional[datetime] = None
+    preferred_notification_channels: Optional[str] = "email,push"
+
+    class Config:
+        from_attributes = True
+
+    @field_serializer('registered_at', check_fields=False)
+    def serialize_datetime(self, dt: Optional[datetime], _info):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+
+
 class ComplaintResponse(ComplaintBase):
     id: int
     citizen_id: int
@@ -206,6 +230,10 @@ class ComplaintResponse(ComplaintBase):
     admin_override: Optional[bool] = False
     admin_override_reason: Optional[str] = None
     user_voted: Optional[bool] = False
+
+    # Complainant / Applicant Details (for Admin & Department Admin)
+    applicant: Optional[ComplainantResponse] = None
+    citizen_details: Optional[ComplainantResponse] = None
     
     class Config:
         from_attributes = True

@@ -12,7 +12,8 @@ from models import (
 )
 from schemas import (
     ComplaintCreate, ComplaintUpdate, ComplaintResponse, 
-    ComplaintListResponse, CategoryResponse, VoteCreate, VoteResponse
+    ComplaintListResponse, CategoryResponse, VoteCreate, VoteResponse,
+    ComplainantResponse
 )
 from common.auth import get_current_active_user, get_optional_current_user, require_admin, require_department, require_citizen
 from common.exceptions import NotFoundException, ValidationException, ForbiddenException, UnauthorizedException
@@ -62,6 +63,55 @@ def _attach_user_voted_to_single(complaint: Optional[Complaint], user: Optional[
         Vote.complaint_id == complaint.id
     ).first() is not None
     setattr(complaint, "user_voted", has_voted)
+
+
+def _attach_applicant_details_to_complaint(complaint: Optional[Complaint], user: Optional[User], db: Session) -> None:
+    """Attach complainant/applicant citizen details for Admin, Department staff, or the Complaint Author."""
+    if not complaint:
+        return
+    is_authorized = False
+    if user:
+        if user.role in [UserRole.ADMIN, UserRole.DEPARTMENT]:
+            is_authorized = True
+        elif user.role == UserRole.CITIZEN:
+            cit = db.query(Citizen).filter(Citizen.user_id == user.id).first()
+            if cit and cit.id == complaint.citizen_id:
+                is_authorized = True
+
+    if is_authorized and complaint.citizen_id:
+        citizen_obj = complaint.citizen
+        if not citizen_obj:
+            citizen_obj = db.query(Citizen).filter(Citizen.id == complaint.citizen_id).first()
+        if citizen_obj:
+            cit_user = citizen_obj.user
+            if not cit_user:
+                cit_user = db.query(User).filter(User.id == citizen_obj.user_id).first()
+            applicant_data = ComplainantResponse(
+                id=citizen_obj.id,
+                user_id=citizen_obj.user_id,
+                full_name=cit_user.full_name if cit_user else "Citizen",
+                email=cit_user.email if cit_user else "",
+                phone=cit_user.phone if cit_user else None,
+                address=citizen_obj.address,
+                latitude=citizen_obj.latitude,
+                longitude=citizen_obj.longitude,
+                registered_at=cit_user.created_at if cit_user else None,
+                preferred_notification_channels=citizen_obj.preferred_notification_channels
+            )
+            setattr(complaint, "applicant", applicant_data)
+            setattr(complaint, "citizen_details", applicant_data)
+            return
+
+    setattr(complaint, "applicant", None)
+    setattr(complaint, "citizen_details", None)
+
+
+def _attach_applicant_details_to_list(complaints: List[Complaint], user: Optional[User], db: Session) -> None:
+    """Attach complainant/applicant details to a list of complaints."""
+    if not complaints:
+        return
+    for c in complaints:
+        _attach_applicant_details_to_complaint(c, user, db)
 
 
 @router.post("", response_model=ComplaintResponse, status_code=status.HTTP_201_CREATED)
@@ -159,6 +209,7 @@ async def create_complaint(
     )
     
     _attach_user_voted_to_single(complaint, current_user, db)
+    _attach_applicant_details_to_complaint(complaint, current_user, db)
     return complaint
 
 
@@ -202,6 +253,7 @@ async def list_complaints(
     ).offset((page - 1) * page_size).limit(page_size).all()
     
     _attach_user_voted_to_complaints(complaints, current_user, db)
+    _attach_applicant_details_to_list(complaints, current_user, db)
     
     return ComplaintListResponse(
         complaints=complaints,
@@ -262,6 +314,7 @@ async def list_public_complaints(
     ).offset((page - 1) * page_size).limit(page_size).all()
     
     _attach_user_voted_to_complaints(complaints, current_user, db)
+    _attach_applicant_details_to_list(complaints, current_user, db)
     
     return ComplaintListResponse(
         complaints=complaints,
@@ -285,6 +338,7 @@ async def get_complaint(
     # Admins and departments retain access across all locations
     if current_user and current_user.role in [UserRole.ADMIN, UserRole.DEPARTMENT]:
         _attach_user_voted_to_single(complaint, current_user, db)
+        _attach_applicant_details_to_complaint(complaint, current_user, db)
         return complaint
     
     # Citizen checks
@@ -293,6 +347,7 @@ async def get_complaint(
         # Author can always view their own complaint
         if citizen and complaint.citizen_id == citizen.id:
             _attach_user_voted_to_single(complaint, current_user, db)
+            _attach_applicant_details_to_complaint(complaint, current_user, db)
             return complaint
         
         if not citizen or citizen.latitude is None or citizen.longitude is None:
@@ -311,9 +366,54 @@ async def get_complaint(
                 detail=f"This incident is {dist:.1f} km away, which is outside your {radius_km:.0f} km community radius."
             )
         _attach_user_voted_to_single(complaint, current_user, db)
+        _attach_applicant_details_to_complaint(complaint, current_user, db)
         return complaint
     
     raise UnauthorizedException("Please log in to view incident details.")
+
+
+@router.get("/{complaint_id}/applicant", response_model=ComplainantResponse)
+async def get_complaint_applicant(
+    complaint_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get the details of the citizen who applied for this complaint (Admin, Department, or Author only)"""
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+        
+    is_authorized = False
+    if current_user.role in [UserRole.ADMIN, UserRole.DEPARTMENT]:
+        is_authorized = True
+    elif current_user.role == UserRole.CITIZEN:
+        cit = db.query(Citizen).filter(Citizen.user_id == current_user.id).first()
+        if cit and cit.id == complaint.citizen_id:
+            is_authorized = True
+            
+    if not is_authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access forbidden: Only administrators and assigned department personnel can view applicant details."
+        )
+        
+    citizen_obj = complaint.citizen or db.query(Citizen).filter(Citizen.id == complaint.citizen_id).first()
+    if not citizen_obj:
+        raise NotFoundException("Applicant details not found")
+        
+    cit_user = citizen_obj.user or db.query(User).filter(User.id == citizen_obj.user_id).first()
+    return ComplainantResponse(
+        id=citizen_obj.id,
+        user_id=citizen_obj.user_id,
+        full_name=cit_user.full_name if cit_user else "Citizen",
+        email=cit_user.email if cit_user else "",
+        phone=cit_user.phone if cit_user else None,
+        address=citizen_obj.address,
+        latitude=citizen_obj.latitude,
+        longitude=citizen_obj.longitude,
+        registered_at=cit_user.created_at if cit_user else None,
+        preferred_notification_channels=citizen_obj.preferred_notification_channels
+    )
 
 
 @router.put("/{complaint_id}", response_model=ComplaintResponse)
@@ -392,6 +492,7 @@ async def update_complaint(
     db.refresh(complaint)
     
     _attach_user_voted_to_single(complaint, current_user, db)
+    _attach_applicant_details_to_complaint(complaint, current_user, db)
     return complaint
 
 

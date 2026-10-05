@@ -120,6 +120,7 @@ export const complaintAPI = {
   upvote: (id) => api.post(`/complaints/${id}/upvote`),
   removeUpvote: (id) => api.delete(`/complaints/${id}/upvote`),
   searchLocations: (query) => api.get('/complaints/locations/search', { params: { q: query, limit: 10 } }),
+  getApplicant: (id) => api.get(`/complaints/${id}/applicant`),
 }
 
 export const priorityAPI = {
@@ -134,6 +135,7 @@ export const adminAPI = {
   stats: () => api.get('/admin/dashboard/stats'),
   complaints: (params) => api.get('/admin/complaints', { params }),
   complaintDetail: (id) => api.get(`/admin/complaints/${id}`),
+  applicantDetail: (id) => api.get(`/admin/complaints/${id}/applicant`),
   updateAssessment: (id, data) => api.put(`/admin/complaints/${id}/assessment`, data),
   reassess: (id) => api.post(`/admin/complaints/${id}/reassess`),
   assign: (id, departmentId) => api.put(`/admin/complaints/${id}/assign`, null, { params: { department_id: departmentId } }),

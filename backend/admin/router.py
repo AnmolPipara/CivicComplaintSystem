@@ -11,9 +11,10 @@ from models import (
 )
 from schemas import (
     ComplaintResponse, ComplaintListResponse, CategoryCreate, CategoryResponse,
-    DepartmentCreate, DepartmentResponse, AssessmentOverrideRequest
+    DepartmentCreate, DepartmentResponse, AssessmentOverrideRequest, ComplainantResponse
 )
-from common.auth import get_current_active_user, require_admin
+from common.auth import get_current_active_user, require_admin, require_department
+from complaint.router import _attach_applicant_details_to_complaint
 from common.exceptions import NotFoundException, ValidationException, ConflictException
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -143,6 +144,8 @@ async def list_all_complaints(
     
     total = query.count()
     complaints = query.offset((page - 1) * page_size).limit(page_size).all()
+    for c in complaints:
+        _attach_applicant_details_to_complaint(c, current_user, db)
     
     return ComplaintListResponse(
         complaints=complaints,
@@ -155,14 +158,45 @@ async def list_all_complaints(
 @router.get("/complaints/{complaint_id}", response_model=ComplaintResponse)
 async def get_complaint_detail(
     complaint_id: int,
-    current_user = Depends(require_admin),
+    current_user = Depends(require_department),
     db: Session = Depends(get_db)
 ):
-    """Get full complaint detail with history"""
+    """Get full complaint detail with applicant and history for Admin and Department staff"""
     complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
     if not complaint:
         raise NotFoundException("Complaint not found")
+    _attach_applicant_details_to_complaint(complaint, current_user, db)
     return complaint
+
+
+@router.get("/complaints/{complaint_id}/applicant", response_model=ComplainantResponse)
+async def get_admin_complaint_applicant(
+    complaint_id: int,
+    current_user = Depends(require_department),
+    db: Session = Depends(get_db)
+):
+    """Get citizen applicant details for a complaint (Admin and Department staff)"""
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+        
+    citizen_obj = complaint.citizen or db.query(Citizen).filter(Citizen.id == complaint.citizen_id).first()
+    if not citizen_obj:
+        raise NotFoundException("Applicant profile not found")
+        
+    cit_user = citizen_obj.user or db.query(User).filter(User.id == citizen_obj.user_id).first()
+    return ComplainantResponse(
+        id=citizen_obj.id,
+        user_id=citizen_obj.user_id,
+        full_name=cit_user.full_name if cit_user else "Citizen",
+        email=cit_user.email if cit_user else "",
+        phone=cit_user.phone if cit_user else None,
+        address=citizen_obj.address,
+        latitude=citizen_obj.latitude,
+        longitude=citizen_obj.longitude,
+        registered_at=cit_user.created_at if cit_user else None,
+        preferred_notification_channels=citizen_obj.preferred_notification_channels
+    )
 
 
 @router.put("/complaints/{complaint_id}/assessment", response_model=ComplaintResponse)

@@ -59,6 +59,22 @@ class Citizen(Base):
     complaints = relationship("Complaint", back_populates="citizen")
     votes = relationship("Vote", back_populates="citizen")
 
+    @property
+    def full_name(self):
+        return self.user.full_name if self.user else None
+
+    @property
+    def email(self):
+        return self.user.email if self.user else None
+
+    @property
+    def phone(self):
+        return self.user.phone if self.user else None
+
+    @property
+    def registered_at(self):
+        return self.user.created_at if self.user else None
+
 
 class Admin(Base):
     __tablename__ = "admins"

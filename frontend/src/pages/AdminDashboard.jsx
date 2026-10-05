@@ -11,9 +11,10 @@ import {
   Clock, CheckCircle2, Filter, X, MoreVertical, Edit, Trash2,
   ArrowUpDown, Download, BarChart3, Building2, MapPin, FolderKanban,
   Settings, ChevronLeft, ChevronRight, ThumbsUp, Activity, Zap, RefreshCw,
-  Sparkles, Sliders, ShieldAlert, Shield
+  Sparkles, Sliders, ShieldAlert, Shield,
+  UserCheck, User, Mail, Phone, Copy, Check, ExternalLink, Home, ShieldCheck, Navigation, Loader
 } from 'lucide-react'
-import { formatRelativeTime, getStatusConfig, classNames, truncate, formatNumber, formatErrorMessage } from '../utils/helpers'
+import { formatRelativeTime, formatDate, formatDateTime, getStatusConfig, classNames, truncate, formatNumber, formatErrorMessage, getInitials, generateAvatarColor, calculateDistanceKm } from '../utils/helpers'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const STATUS_ORDER = ['pending', 'working', 'completed']
@@ -65,6 +66,41 @@ export function AdminDashboard() {
   })
   const [savingAssessment, setSavingAssessment] = useState(false)
   const [reassessingId, setReassessingId] = useState(null)
+
+  // Applicant / Citizen Modal State
+  const [showApplicantModal, setShowApplicantModal] = useState(false)
+  const [selectedApplicant, setSelectedApplicant] = useState(null)
+  const [selectedComplaintApplicant, setSelectedComplaintApplicant] = useState(null)
+  const [loadingApplicantModal, setLoadingApplicantModal] = useState(false)
+  const [copiedField, setCopiedField] = useState(null)
+
+  const handleCopy = (text, field) => {
+    if (!text) return
+    navigator.clipboard.writeText(text)
+    setCopiedField(field)
+    setTimeout(() => setCopiedField(null), 2000)
+  }
+
+  const handleOpenApplicantModal = async (complaint) => {
+    setSelectedComplaintApplicant(complaint)
+    setShowApplicantModal(true)
+    if (complaint.applicant || complaint.citizen_details) {
+      setSelectedApplicant(complaint.applicant || complaint.citizen_details)
+      return
+    }
+    // Fetch if not present on list item
+    setLoadingApplicantModal(true)
+    try {
+      const res = isAdmin 
+        ? await adminAPI.applicantDetail(complaint.id).catch(() => complaintAPI.getApplicant(complaint.id))
+        : await complaintAPI.getApplicant(complaint.id)
+      setSelectedApplicant(res.data)
+    } catch (err) {
+      console.error('Failed to load applicant details:', err)
+    } finally {
+      setLoadingApplicantModal(false)
+    }
+  }
 
   const fetchStats = async () => {
     if (!isAdmin) return;
@@ -547,6 +583,19 @@ export function AdminDashboard() {
                         <p className="text-body-sm text-text-secondary line-clamp-1 max-w-xs">
                           {truncate(complaint.description, 80)}
                         </p>
+                        {complaint.applicant && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenApplicantModal(complaint)}
+                            className="mt-1 flex items-center gap-1 text-[11px] text-text-muted hover:text-primary-300 transition-colors"
+                            title="View citizen details"
+                          >
+                            <UserCheck className="h-3 w-3 text-primary-400" />
+                            <span className="truncate max-w-[170px]">
+                              By: <span className="font-medium text-text-secondary hover:underline">{complaint.applicant.full_name}</span>
+                            </span>
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="py-4 px-4 hidden md:table-cell">
@@ -613,6 +662,16 @@ export function AdminDashboard() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/complaints/${complaint.id}`)}>
                           View
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-text-secondary hover:text-text-primary"
+                          onClick={() => handleOpenApplicantModal(complaint)}
+                          title="View applicant details"
+                        >
+                          <UserCheck className="h-3.5 w-3.5 mr-1 text-primary-400" />
+                          Citizen
                         </Button>
                         {isAdmin && (
                           <Button 
@@ -899,6 +958,192 @@ export function AdminDashboard() {
           </div>
         </Modal>
       )}
+
+      {/* Applicant / Citizen Details Modal */}
+      <Modal
+        isOpen={showApplicantModal}
+        onClose={() => setShowApplicantModal(false)}
+        title="Applicant / Citizen Details"
+        size="md"
+      >
+        {loadingApplicantModal && !selectedApplicant ? (
+          <div className="py-10 text-center text-text-muted">
+            <Loader className="h-6 w-6 animate-spin mx-auto mb-2 text-primary-400" />
+            <p className="text-body-sm">Loading citizen details...</p>
+          </div>
+        ) : selectedApplicant ? (
+          <div className="space-y-4">
+            {/* Citizen Header */}
+            <div className="flex items-center gap-3.5 p-3.5 rounded-xl bg-surface-elevated/70 border border-border">
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-base text-white shadow-sm flex-shrink-0"
+                style={{ backgroundColor: generateAvatarColor(selectedApplicant.full_name || 'Citizen') }}
+              >
+                {getInitials(selectedApplicant.full_name || 'Citizen')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-text-primary text-base truncate">
+                    {selectedApplicant.full_name || 'Anonymous Citizen'}
+                  </h3>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <ShieldCheck className="w-2.5 h-2.5" /> Verified
+                  </span>
+                </div>
+                <p className="text-caption text-text-muted flex items-center gap-1.5 mt-0.5">
+                  <span>Citizen ID: #{selectedApplicant.id}</span>
+                  <span>•</span>
+                  <span>User #{selectedApplicant.user_id}</span>
+                  {selectedComplaintApplicant && (
+                    <>
+                      <span>•</span>
+                      <span>Complaint #{selectedComplaintApplicant.id}</span>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Contact Details */}
+            <div className="space-y-2.5 text-body-sm">
+              {/* Email */}
+              <div className="p-3 rounded-xl bg-surface-elevated/40 border border-border/60 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Mail className="h-4 w-4 text-primary-400 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">Email Address</span>
+                    <a
+                      href={`mailto:${selectedApplicant.email}?subject=JanSewa Complaint %23${selectedComplaintApplicant?.id || ''}: ${encodeURIComponent(selectedComplaintApplicant?.category?.display_name || 'Civic Issue')}`}
+                      className="text-text-primary hover:text-primary-400 font-medium truncate block transition-colors"
+                    >
+                      {selectedApplicant.email}
+                    </a>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(selectedApplicant.email, 'email')}
+                  className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-hover transition-colors"
+                  title="Copy Email"
+                >
+                  {copiedField === 'email' ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+
+              {/* Phone */}
+              <div className="p-3 rounded-xl bg-surface-elevated/40 border border-border/60 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Phone className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">Phone Number</span>
+                    {selectedApplicant.phone ? (
+                      <a
+                        href={`tel:${selectedApplicant.phone}`}
+                        className="text-text-primary hover:text-emerald-400 font-medium font-mono truncate block transition-colors"
+                      >
+                        {selectedApplicant.phone}
+                      </a>
+                    ) : (
+                      <span className="text-text-muted italic">Not provided</span>
+                    )}
+                  </div>
+                </div>
+                {selectedApplicant.phone && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(selectedApplicant.phone, 'phone')}
+                    className="p-1.5 text-text-muted hover:text-text-primary rounded-md hover:bg-surface-hover transition-colors"
+                    title="Copy Phone"
+                  >
+                    {copiedField === 'phone' ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                )}
+              </div>
+
+              {/* Registered Address */}
+              <div className="p-3 rounded-xl bg-surface-elevated/40 border border-border/60 flex items-start gap-2.5">
+                <Home className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider block">Saved Neighborhood Address</span>
+                  <p className="text-text-secondary text-body-sm leading-relaxed">
+                    {selectedApplicant.address || 'No saved neighborhood address on file'}
+                  </p>
+                  {selectedApplicant.latitude != null && selectedApplicant.longitude != null && (
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-text-muted font-mono">
+                      <span>Coordinates: {selectedApplicant.latitude.toFixed(4)}, {selectedApplicant.longitude.toFixed(4)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Relative Distance */}
+              {selectedApplicant.latitude != null && selectedComplaintApplicant?.latitude != null && (() => {
+                const dist = calculateDistanceKm(selectedApplicant.latitude, selectedApplicant.longitude, selectedComplaintApplicant.latitude, selectedComplaintApplicant.longitude)
+                if (dist == null) return null
+                return (
+                  <div className="p-2.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300 flex items-center gap-2">
+                    <Navigation className="h-4 w-4 text-primary-400 shrink-0" />
+                    <span>
+                      Applicant resides <strong>{dist <= 0.1 ? '< 100m' : `${dist.toFixed(1)} km`}</strong> from this incident location
+                      {dist <= 1.0 ? ' (Immediate Resident)' : ''}
+                    </span>
+                  </div>
+                )
+              })()}
+
+              {/* Account Meta */}
+              <div className="p-2.5 rounded-lg bg-surface-hover/30 border border-border flex flex-col gap-1 text-xs text-text-muted">
+                {selectedApplicant.registered_at && (
+                  <div className="flex justify-between items-center">
+                    <span>Registered Account:</span>
+                    <span className="font-medium text-text-secondary">{formatDate(selectedApplicant.registered_at)}</span>
+                  </div>
+                )}
+                {selectedApplicant.preferred_notification_channels && (
+                  <div className="flex justify-between items-center">
+                    <span>Notification Channels:</span>
+                    <span className="font-medium text-text-secondary capitalize">{selectedApplicant.preferred_notification_channels}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-3 border-t border-border flex justify-between items-center gap-3">
+              {selectedComplaintApplicant && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowApplicantModal(false)
+                    navigate(`/admin/complaints/${selectedComplaintApplicant.id}`)
+                  }}
+                  className="text-xs"
+                >
+                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                  View Full Complaint
+                </Button>
+              )}
+              <div className="flex items-center gap-2">
+                <a
+                  href={`mailto:${selectedApplicant.email}?subject=JanSewa Complaint %23${selectedComplaintApplicant?.id || ''}: ${encodeURIComponent(selectedComplaintApplicant?.category?.display_name || 'Civic Issue')}`}
+                  className="btn-primary text-xs py-2 px-3 flex items-center gap-1.5"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  Email Citizen
+                </a>
+                <Button variant="secondary" size="sm" onClick={() => setShowApplicantModal(false)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="py-6 text-center text-text-muted text-body-sm">
+            No applicant details available for this incident.
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
