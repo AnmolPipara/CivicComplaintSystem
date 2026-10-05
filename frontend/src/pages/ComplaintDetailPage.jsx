@@ -1016,7 +1016,7 @@ export function ComplaintDetailPage() {
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-text-primary text-body-sm flex items-center gap-1.5">
                       <Building2 className="h-4 w-4 text-primary-400" />
-                      {complaint.department?.display_name || 'Unassigned'}
+                      {complaint.department?.display_name || departments.find(d => d.id === complaint.department_id)?.display_name || 'Unassigned'}
                     </span>
                     <Button variant="secondary" size="sm" onClick={openAssignModal}>
                       {complaint.department_id ? 'Reassign' : 'Assign'}

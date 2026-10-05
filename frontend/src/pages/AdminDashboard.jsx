@@ -682,7 +682,7 @@ export function AdminDashboard() {
                     </td>
                     <td className="py-4 px-4 hidden md:table-cell">
                       <span className="text-body-sm text-text-secondary">
-                        {complaint.department?.display_name || 'Unassigned'}
+                        {complaint.department?.display_name || departments.find(d => d.id === complaint.department_id)?.display_name || 'Unassigned'}
                       </span>
                     </td>
                     <td className="py-4 px-4">

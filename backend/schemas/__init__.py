@@ -115,6 +115,28 @@ class CategoryResponse(CategoryBase):
         return dt.isoformat().replace("+00:00", "Z")
 
 
+class DepartmentBase(BaseModel):
+    name: str
+    display_name: str
+    description: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    head_name: Optional[str] = None
+
+
+class DepartmentCreate(DepartmentBase):
+    pass
+
+
+class DepartmentResponse(DepartmentBase):
+    id: int
+    is_active: bool = True
+    created_at: Optional[float] = None
+    
+    class Config:
+        from_attributes = True
+
+
 class ComplaintBase(BaseModel):
     description: Optional[str] = ""
     category_id: int
@@ -209,6 +231,7 @@ class ComplaintResponse(ComplaintBase):
     assigned_at: Optional[datetime]
     started_at: Optional[datetime]
     category: Optional[CategoryResponse] = None
+    department: Optional[DepartmentResponse] = None
     status_history: List[ComplaintStatusHistoryResponse] = []
     
     # Priority & Assessment fields
@@ -261,28 +284,6 @@ class ComplaintListResponse(BaseModel):
     total: int
     page: int
     page_size: int
-
-
-class DepartmentBase(BaseModel):
-    name: str
-    display_name: str
-    description: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    head_name: Optional[str] = None
-
-
-class DepartmentCreate(DepartmentBase):
-    pass
-
-
-class DepartmentResponse(DepartmentBase):
-    id: int
-    is_active: bool
-    created_at: float
-    
-    class Config:
-        from_attributes = True
 
 
 class VoteCreate(BaseModel):
