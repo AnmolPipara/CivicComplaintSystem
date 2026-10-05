@@ -278,7 +278,8 @@ async def call_llm_assessment(
     description: str,
     location: str,
     latitude: Optional[float] = None,
-    longitude: Optional[float] = None
+    longitude: Optional[float] = None,
+    nearby_facilities: Optional[List[Dict[str, Any]]] = None
 ) -> Tuple[LLMAssessmentOutput, str]:
     """
     Call Groq (or OpenAI) API to obtain a structured complaint assessment.
@@ -302,6 +303,14 @@ async def call_llm_assessment(
         severity_val = baseline["severity"]
         urgency_val = baseline["urgency"]
         impact_val = baseline["impact"]
+
+        # Elevate baseline if nearby sensitive facility was detected
+        if nearby_facilities:
+            facility_summary = ", ".join([f"{f['name']} (~{f['distance_meters']}m)" for f in nearby_facilities[:2]])
+            impact_val = min(100, impact_val + 30)
+            urgency_val = min(100, urgency_val + 25)
+            reason += f" (Impact and urgency elevated due to close proximity to sensitive zone: {facility_summary})."
+
         if has_safety_trigger:
             severity_val = max(severity_val, 85)
             urgency_val = max(urgency_val, 90)
@@ -314,7 +323,7 @@ async def call_llm_assessment(
             reason=reason,
             assessment_confidence="low" if is_vague_or_empty else "medium",
             missing_information=baseline["missing_info"],
-            needs_human_review=True if (is_vague_or_empty or has_safety_trigger) else False
+            needs_human_review=True if (is_vague_or_empty or has_safety_trigger or bool(nearby_facilities)) else False
         ), "provisional"
 
     # Build Prompt
@@ -326,9 +335,13 @@ async def call_llm_assessment(
         "2. impact_score (integer 0-100): Estimate the likely scope of public disruption using ONLY verifiable evidence. Do NOT invent an exact affected population or assume high traffic without evidence.\n"
         "3. urgency_score (integer 0-100): Estimate how quickly the issue requires municipal intervention based on immediate risk and disruption.\n"
         "4. Full Range: Output exact evidence-calibrated integers between 0 and 100 (e.g. 42, 67, 83). Do NOT restrict scores to multiples of 25.\n\n"
+        "### AUTOMATED PROXIMITY & SENSITIVE ZONE INSTRUCTIONS:\n"
+        "- If nearby sensitive facilities (e.g. schools, kindergartens, hospitals, clinics) are detected by the spatial layer within 300m, elevate the impact_score and urgency_score accordingly (by +20 to +35 points).\n"
+        "- Even if the citizen description is short or doesn't mention the facility, the physical proximity means children, patients, or emergency access are endangered by this civic defect.\n"
+        "- Specifically mention the detected facility name and approximate distance in your 'reason' field (e.g., 'Impact and urgency elevated due to close proximity to <Facility Name> (~Xm away)').\n\n"
         "### RULES FOR VAGUE OR MISSING DESCRIPTIONS:\n"
         "- Do NOT assume the worst-case scenario simply because information is missing.\n"
-        "- For road potholes with missing or vague descriptions, anchor around the predefined small-to-medium baseline (~35-45 severity).\n"
+        "- For road potholes with missing or vague descriptions without nearby sensitive facilities, anchor around the predefined small-to-medium baseline (~35-45 severity).\n"
         "- Do NOT automatically classify an underspecified complaint as critical, nor as harmless.\n"
         "- Do NOT invent accidents, injuries, casualties, traffic volume, or damage.\n"
         "- When evidence is insufficient, mark assessment_confidence as 'low' and list specific items in missing_information.\n"
@@ -355,8 +368,16 @@ async def call_llm_assessment(
     user_prompt = (
         f"Complaint Category: {category_display} (Identifier: {category_name})\n"
         f"Location: {loc_str}\n"
-        f"Citizen Description:\n\"\"\"{description}\"\"\"\n\n"
-        "Evaluate this complaint objectively according to your instructions. Return ONLY the JSON object with severity_score, impact_score, urgency_score, reason, assessment_confidence, missing_information, and needs_human_review."
+        f"Citizen Description:\n\"\"\"{description}\"\"\"\n"
+    )
+
+    if nearby_facilities:
+        facility_lines = "\n".join([f"  - {f['name']} ({f['label']} - approx {f['distance_meters']}m away)" for f in nearby_facilities[:3]])
+        user_prompt += f"\nNearby Sensitive Facilities (Automated Spatial POI Lookup within 300m):\n{facility_lines}\n"
+
+    user_prompt += (
+        "\nEvaluate this complaint objectively according to your instructions. "
+        "Return ONLY the JSON object with severity_score, impact_score, urgency_score, reason, assessment_confidence, missing_information, and needs_human_review."
     )
 
     try:
@@ -453,46 +474,76 @@ async def assess_complaint(
     upvote_count: int = 0
 ) -> AssessmentResult:
     """
-    Orchestrate LLM call, score calculation, and return full AssessmentResult.
+    Orchestrate spatial POI detection, LLM call, score calculation, and return full AssessmentResult.
     """
+    # 1. Spatial Sensitive Facility Detection (schools, kindergartens, hospitals, clinics within 500m)
+    nearby_facilities: List[Dict[str, Any]] = []
+    if latitude is not None and longitude is not None:
+        try:
+            from common.geo import detect_nearby_sensitive_facilities
+            nearby_facilities = await detect_nearby_sensitive_facilities(latitude, longitude, radius_meters=500)
+            if nearby_facilities:
+                logger.info(f"Detected {len(nearby_facilities)} nearby sensitive facilities: {[f['name'] for f in nearby_facilities]}")
+        except Exception as e:
+            logger.warning(f"Error querying nearby sensitive facilities: {e}")
+
     llm_output, status_str = await call_llm_assessment(
         category_name=category_name,
         category_display=category_display,
         description=description,
         location=location,
         latitude=latitude,
-        longitude=longitude
+        longitude=longitude,
+        nearby_facilities=nearby_facilities
     )
 
-    # Check for safety escalation eligibility:
+    # 2. Check for safety escalation eligibility:
     # Plausible immediate hazard flagged by LLM or keyword scan
     has_safety_trigger, _ = check_for_safety_hazard(description)
     is_safety_escalated = False
     if has_safety_trigger and (llm_output.urgency_score >= 85 or llm_output.severity_score >= 85):
         is_safety_escalated = True
 
+    final_severity = llm_output.severity_score
+    final_impact = llm_output.impact_score
+    final_urgency = llm_output.urgency_score
+    final_reason = llm_output.reason
+
+    # 3. Deterministic Proximity Safeguard: If within 300m of a sensitive facility (school/hospital),
+    # ensure impact is at least 65 and urgency at least 60, and ensure facility is mentioned in reason
+    if nearby_facilities:
+        nearest = nearby_facilities[0]
+        if final_impact < 65:
+            final_impact = max(final_impact, 65)
+        if final_urgency < 60:
+            final_urgency = max(final_urgency, 60)
+
+        # Ensure nearest facility is explicitly documented in the assessment reason
+        if nearest["name"].lower() not in final_reason.lower():
+            final_reason += f" [Sensitive Zone: ~{nearest['distance_meters']}m from {nearest['name']} ({nearest['label']})]"
+
     priority_score, priority_level = calculate_priority_score(
-        severity=llm_output.severity_score,
-        impact=llm_output.impact_score,
-        urgency=llm_output.urgency_score,
+        severity=final_severity,
+        impact=final_impact,
+        urgency=final_urgency,
         upvote_count=upvote_count,
         is_safety_escalated=is_safety_escalated
     )
 
     return AssessmentResult(
-        severity_score=llm_output.severity_score,
-        impact_score=llm_output.impact_score,
-        urgency_score=llm_output.urgency_score,
+        severity_score=final_severity,
+        impact_score=final_impact,
+        urgency_score=final_urgency,
         priority_score=priority_score,
         priority_level=priority_level,
         assessment_status=status_str,
-        assessment_reason=llm_output.reason,
+        assessment_reason=final_reason,
         assessment_confidence=llm_output.assessment_confidence,
         missing_information=llm_output.missing_information,
-        needs_human_review=llm_output.needs_human_review or is_safety_escalated,
+        needs_human_review=llm_output.needs_human_review or is_safety_escalated or bool(nearby_facilities),
         is_safety_escalated=is_safety_escalated,
-        ai_severity_score=llm_output.severity_score,
-        ai_impact_score=llm_output.impact_score,
-        ai_urgency_score=llm_output.urgency_score,
-        ai_reason=llm_output.reason
+        ai_severity_score=final_severity,
+        ai_impact_score=final_impact,
+        ai_urgency_score=final_urgency,
+        ai_reason=final_reason
     )

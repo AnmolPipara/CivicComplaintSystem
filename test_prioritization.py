@@ -2,6 +2,13 @@ import requests
 import random
 import os
 import math
+import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 BASE_URL = "http://localhost:8000/api"
 r = random.randint(10000, 99999)
@@ -42,6 +49,10 @@ def run_tests():
     c1_headers = {"Authorization": f"Bearer {c1_token}"}
     c2_headers = {"Authorization": f"Bearer {c2_token}"}
     adm_headers = {"Authorization": f"Bearer {adm_token}"}
+
+    # Set community location for 25km distance check in upvoting
+    requests.put(f"{BASE_URL}/auth/profile", json={"address": "Connaught Place, Delhi", "latitude": 28.6315, "longitude": 77.2167}, headers=c1_headers)
+    requests.put(f"{BASE_URL}/auth/profile", json={"address": "Connaught Place, Delhi", "latitude": 28.6320, "longitude": 77.2170}, headers=c2_headers)
     
     # Get categories
     res = requests.get(f"{BASE_URL}/admin/categories", headers=adm_headers)
@@ -60,7 +71,9 @@ def run_tests():
         pothole_data = {
             "description": "pothole",
             "category_id": str(pothole_cat["id"]),
-            "location": "Sector 4 Main Road"
+            "location": "Sector 4 Main Road",
+            "latitude": "28.6318",
+            "longitude": "77.2168"
         }
         res1 = requests.post(f"{BASE_URL}/complaints", data=pothole_data, headers=c1_headers)
         assert res1.status_code == 201, f"Failed: {res1.text}"
