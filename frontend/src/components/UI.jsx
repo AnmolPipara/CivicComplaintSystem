@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { classNames, getPriorityConfig, getStatusConfig } from '../utils/helpers'
 import { X } from 'lucide-react'
 
@@ -378,6 +379,28 @@ function XCircle({ className, ...props }) {
 }
 
 export function Modal({ isOpen, onClose, title, children, className = '', size = 'md' }) {
+  // Prevent background scrolling when modal is open
+  useEffect(() => {
+    if (!isOpen) return
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [isOpen])
+
+  // Close on Escape key press
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && onClose) {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   const sizes = {
@@ -388,21 +411,36 @@ export function Modal({ isOpen, onClose, title, children, className = '', size =
     full: 'max-w-full mx-4',
   }
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <div className="flex min-h-full items-center justify-center p-4">
+  const modalContent = (
+    <div
+      className="fixed inset-0 z-[9990] overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
+      <div className="flex min-h-full items-center justify-center p-4 text-center sm:p-6">
+        {/* Full-screen backdrop */}
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+          className="fixed inset-0 bg-black/75 backdrop-blur-md transition-opacity"
           onClick={onClose}
           aria-hidden="true"
         />
-        <div className={classNames('relative w-full bg-surface-card rounded-card shadow-elevated border border-border-strong animate-fade-in backdrop-blur-xl', sizes[size])}>
+
+        {/* Modal Dialog Card */}
+        <div
+          className={classNames(
+            'relative w-full bg-surface-card rounded-card shadow-2xl border border-border-strong animate-fade-in backdrop-blur-xl my-6 text-left z-10',
+            sizes[size],
+            className
+          )}
+        >
           {title && (
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 id="modal-title" className="text-heading-sm font-semibold text-text-primary">
                 {title}
               </h2>
               <button
+                type="button"
                 onClick={onClose}
                 className="p-1.5 rounded-lg hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
                 aria-label="Close modal"
@@ -416,6 +454,11 @@ export function Modal({ isOpen, onClose, title, children, className = '', size =
       </div>
     </div>
   )
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body)
+  }
+  return modalContent
 }
 
 export function Alert({ variant = 'info', title, children, className = '', onClose, dismissible = false }) {

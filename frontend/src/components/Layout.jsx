@@ -37,7 +37,8 @@ export function Header() {
   const navItems = isAdmin ? NAV_ITEMS_ADMIN : isDepartment ? NAV_ITEMS_DEPARTMENT : NAV_ITEMS_CITIZEN
 
   return (
-    <header className="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-border">
+    <>
+      <header className="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-border">
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" aria-label="Main navigation">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
@@ -211,6 +212,19 @@ export function Header() {
                       Dashboard
                     </NavLink>
                   )}
+                  {isCitizen && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false)
+                        setShowLocationModal(true)
+                      }}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium text-text-secondary hover:bg-surface-hover w-full text-left transition-colors"
+                    >
+                      <MapPin className="h-5 w-5 text-primary-400" />
+                      <span>Community Location</span>
+                    </button>
+                  )}
                   <hr className="my-2 border-border" />
                   <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-body font-medium text-red-400 hover:bg-red-500/10 rounded-button transition-colors">
                     <LogOut className="h-5 w-5" />
@@ -227,16 +241,17 @@ export function Header() {
           </div>
         )}
       </nav>
-
-      {/* Community Location Modal */}
-      <LocationModal
-        isOpen={showLocationModal}
-        onClose={() => setShowLocationModal(false)}
-        title="My Community Location"
-        explanation="Set your neighborhood center to automatically view and upvote incidents within 25 km of your location. Your home coordinates are never shared publicly."
-      />
     </header>
-  )
+
+    {/* Community Location Modal */}
+    <LocationModal
+      isOpen={showLocationModal}
+      onClose={() => setShowLocationModal(false)}
+      title="My Community Location"
+      explanation="Set your neighborhood center to automatically view and upvote incidents within 25 km of your location. Your home coordinates are never shared publicly."
+    />
+  </>
+)
 }
 
 function generateAvatarColor(name) {
