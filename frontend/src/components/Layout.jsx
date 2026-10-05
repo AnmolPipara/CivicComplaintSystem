@@ -5,19 +5,14 @@ import { Button } from './UI'
 import {
   LayoutDashboard,
   FileText,
-  Bell,
   Settings,
   LogOut,
   User,
-  BarChart3,
-  Users,
   FolderKanban,
   MapPin,
   ChevronDown,
   Menu,
   X,
-  Shield,
-  Building2,
   Sparkles,
 } from 'lucide-react'
 import { classNames, truncate } from '../utils/helpers'
@@ -30,17 +25,9 @@ const NAV_ITEMS_CITIZEN = [
   { path: '/feed', label: 'Public Feed', icon: FolderKanban },
 ]
 
-const NAV_ITEMS_ADMIN = [
-  { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/admin/complaints', label: 'All Complaints', icon: FolderKanban },
-  { path: '/admin/categories', label: 'Categories', icon: Settings },
-  { path: '/admin/departments', label: 'Departments', icon: Building2 },
-]
+const NAV_ITEMS_ADMIN = []
 
-const NAV_ITEMS_DEPARTMENT = [
-  { path: '/department', label: 'My Queue', icon: FolderKanban },
-  { path: '/department/complaints', label: 'Assigned', icon: FileText },
-]
+const NAV_ITEMS_DEPARTMENT = []
 
 export function Header() {
   const { user, logout, isAuthenticated, isAdmin, isDepartment, isCitizen } = useAuth()
@@ -61,32 +48,34 @@ export function Header() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex md:items-center md:gap-1">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = location.pathname === item.path || 
-                (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
-              return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  className={({ isActive }) => classNames(
-                    'flex items-center gap-2 px-3.5 py-2 rounded-button text-body-sm font-medium transition-all duration-200 relative',
-                    isActive
-                      ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20'
-                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-transparent'
-                  )}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                  <span>{item.label}</span>
-                  {isActive && (
-                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-primary-500 rounded-full" />
-                  )}
-                </NavLink>
-              )
-            })}
-          </div>
+          {navItems.length > 0 && (
+            <div className="hidden md:flex md:items-center md:gap-1">
+              {navItems.map((item) => {
+                const Icon = item.icon
+                const isActive = location.pathname === item.path || 
+                  (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={({ isActive }) => classNames(
+                      'flex items-center gap-2 px-3.5 py-2 rounded-button text-body-sm font-medium transition-all duration-200 relative',
+                      isActive
+                        ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20'
+                        : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary border border-transparent'
+                    )}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                    <span>{item.label}</span>
+                    {isActive && (
+                      <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-primary-500 rounded-full" />
+                    )}
+                  </NavLink>
+                )
+              })}
+            </div>
+          )}
 
           {/* Right side actions */}
           <div className="flex items-center gap-3">
@@ -224,12 +213,50 @@ export function Header() {
                   </NavLink>
                 )
               })}
-              <hr className="my-3 border-border" />
+              {navItems.length > 0 && <hr className="my-2 border-border" />}
               {isAuthenticated ? (
-                <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-body font-medium text-red-400 hover:bg-red-500/10 rounded-button transition-colors">
-                  <LogOut className="h-5 w-5" />
-                  Sign Out
-                </button>
+                <>
+                  {(isAdmin || isDepartment) && (
+                    <NavLink
+                      to="/admin"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={classNames(
+                        'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
+                        location.pathname === '/admin' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
+                      )}
+                    >
+                      <LayoutDashboard className="h-5 w-5" />
+                      Dashboard
+                    </NavLink>
+                  )}
+                  <NavLink
+                    to="/profile"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={classNames(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
+                      location.pathname === '/profile' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
+                    )}
+                  >
+                    <User className="h-5 w-5" />
+                    Profile
+                  </NavLink>
+                  <NavLink
+                    to="/settings"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={classNames(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-button text-body font-medium transition-all',
+                      location.pathname === '/settings' ? 'bg-primary-500/10 text-primary-400' : 'text-text-secondary hover:bg-surface-hover'
+                    )}
+                  >
+                    <Settings className="h-5 w-5" />
+                    Settings
+                  </NavLink>
+                  <hr className="my-2 border-border" />
+                  <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-body font-medium text-red-400 hover:bg-red-500/10 rounded-button transition-colors">
+                    <LogOut className="h-5 w-5" />
+                    Sign Out
+                  </button>
+                </>
               ) : (
                 <div className="flex flex-col gap-2 pt-2">
                   <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="btn-secondary w-full justify-center">Sign In</Link>
