@@ -15,6 +15,7 @@ import {
   Sparkles 
 } from 'lucide-react';
 import { geocodeAPI } from '../services/api';
+import { fetchGeocodeLocations, fetchReverseGeocode } from '../utils/helpers';
 
 // Default to center of India
 const INDIA_CENTER = [20.5937, 78.9629];
@@ -163,7 +164,7 @@ export function MapPicker({ value, onChange }) {
       setPosition(null);
       setDerivedAddress('');
     }
-  }, [value?.lat, value?.lng]);
+  }, [value?.lat, value?.lng, position]);
 
   // Synchronize derived address if parent passes it
   useEffect(() => {
@@ -196,21 +197,7 @@ export function MapPicker({ value, onChange }) {
     // 2. Automatically derive location using exact clicked coordinates
     setIsDeriving(true);
     try {
-      let data = null;
-      try {
-        const apiRes = await geocodeAPI.reverse(exactCoordinates.lat, exactCoordinates.lng);
-        data = apiRes.data;
-      } catch (proxyErr) {
-        // Fallback to direct Nominatim if backend proxy is temporarily unreachable
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${exactCoordinates.lat}&lon=${exactCoordinates.lng}&format=jsonv2&addressdetails=1`,
-          {
-            headers: { Accept: 'application/json' },
-            signal: controller.signal,
-          }
-        );
-        if (res.ok) data = await res.json();
-      }
+      const data = await fetchReverseGeocode(exactCoordinates.lat, exactCoordinates.lng);
 
       // RACE CONDITION CHECK:
       // If a newer click occurred while this request was in-flight, ignore this stale response!
@@ -291,18 +278,7 @@ export function MapPicker({ value, onChange }) {
     if (!searchQuery.trim()) return;
     setSearching(true);
     try {
-      let data = [];
-      try {
-        const apiRes = await geocodeAPI.search(searchQuery.trim(), 1);
-        data = Array.isArray(apiRes.data) ? apiRes.data : [];
-      } catch (proxyErr) {
-        // Fallback to direct Nominatim if backend proxy is temporarily unreachable
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=1`,
-          { headers: { Accept: 'application/json' } }
-        );
-        if (res.ok) data = await res.json();
-      }
+      const data = await fetchGeocodeLocations(searchQuery.trim(), 1);
 
       if (Array.isArray(data) && data.length > 0) {
         const resultLat = parseFloat(data[0].lat);
@@ -434,7 +410,7 @@ export function MapPicker({ value, onChange }) {
       </div>
 
       {/* Automatically derived location banner */}
-      {(isDeriving || derivedAddress) && (
+      {position && (isDeriving || derivedAddress) && (
         <div className="px-3 py-1.5 bg-emerald-950/40 border-b border-emerald-500/20 flex items-center justify-between text-xs text-emerald-300 gap-2">
           <div className="flex items-center gap-1.5 truncate">
             {isDeriving ? (

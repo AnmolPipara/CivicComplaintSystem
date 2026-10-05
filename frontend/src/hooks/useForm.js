@@ -28,9 +28,7 @@ export function useForm({ initialValues, validate, onSubmit }) {
     setTouched((prev) => ({ ...prev, [name]: true }))
     
     const error = validateField(name, value)
-    if (error) {
-      setErrors((prev) => ({ ...prev, [name]: error }))
-    }
+    setErrors((prev) => ({ ...prev, [name]: error || '' }))
   }, [validateField])
 
   const handleSubmit = useCallback(async (e) => {
@@ -53,6 +51,9 @@ export function useForm({ initialValues, validate, onSubmit }) {
 
   const setFieldValue = useCallback((name, value) => {
     setValues((prev) => ({ ...prev, [name]: value }))
+    if (value && typeof value === 'string' && value.trim()) {
+      setErrors((prev) => prev[name] ? ({ ...prev, [name]: '' }) : prev)
+    }
   }, [])
 
   const setFieldError = useCallback((name, error) => {

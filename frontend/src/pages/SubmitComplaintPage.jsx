@@ -5,7 +5,7 @@ import { complaintAPI, geocodeAPI } from '../services/api'
 import { useForm } from '../hooks/useForm'
 import { Button, Input, Textarea, Card, CardContent, Alert, Badge } from '../components/UI'
 import { Camera, X, CheckCircle2, ArrowRight, MapPin, Search, Loader2, Sparkles } from 'lucide-react'
-import { classNames, formatErrorMessage, formatNominatimAddress } from '../utils/helpers'
+import { classNames, formatErrorMessage, formatNominatimAddress, fetchGeocodeLocations } from '../utils/helpers'
 import { MapPicker } from '../components/MapPicker'
 
 const CATEGORIES = [
@@ -81,27 +81,16 @@ export function SubmitComplaintPage() {
     },
   })
 
-  // Geocode location query to suggestions using backend geocode proxy with direct fallback
+  // Geocode location query to suggestions using robust multi-strategy geocoding
   const searchGeocodeLocation = async (query, autoPin = false, refineText = true) => {
-    if (!query || query.trim().length < 3) {
+    if (!query || query.trim().length < 2) {
       setLocationSuggestions([])
       setIsSearchingLocation(false)
       return
     }
     setIsSearchingLocation(true)
     try {
-      let data = []
-      try {
-        const res = await geocodeAPI.search(query.trim(), 5)
-        data = Array.isArray(res.data) ? res.data : []
-      } catch (backendErr) {
-        // Fallback to direct Nominatim if backend proxy is temporarily unreachable
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=5`,
-          { headers: { Accept: 'application/json' } }
-        )
-        if (res.ok) data = await res.json()
-      }
+      const data = await fetchGeocodeLocations(query.trim(), 5)
 
       if (Array.isArray(data) && data.length > 0) {
         setLocationSuggestions(data)
@@ -137,7 +126,7 @@ export function SubmitComplaintPage() {
       searchTimeoutRef.current = setTimeout(() => {
         // Automatically geocode and pin the top match on the map without overwriting user's typing text
         searchGeocodeLocation(val, true, false)
-      }, 500)
+      }, 350)
     } else {
       setLocationSuggestions([])
       setShowLocationDropdown(false)
@@ -164,6 +153,9 @@ export function SubmitComplaintPage() {
   // Trigger geocode immediately and pick best match
   const handleTriggerGeocode = async (e) => {
     if (e) e.preventDefault()
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
     if (!values.location.trim()) return
     searchGeocodeLocation(values.location.trim(), true, true)
   }

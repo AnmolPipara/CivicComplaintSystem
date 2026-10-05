@@ -271,3 +271,127 @@ export function formatNominatimAddress(data, lat, lng) {
   const concise = parts.join(', ');
   return concise || data.display_name || ((lat != null && lng != null) ? `Location (${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)})` : '');
 }
+
+/**
+ * Robust multi-strategy geocoding search:
+ * 1. Backend geocode proxy (/api/geocode/search)
+ * 2. Photon by Komoot (CORS-enabled OSM GeoJSON, no rate-limit blocks)
+ * 3. Direct Nominatim fallback
+ */
+export async function fetchGeocodeLocations(query, limit = 5) {
+  if (!query || query.trim().length < 2) return [];
+  const clean = query.trim();
+
+  // Strategy 1: Backend proxy (/api/geocode/search)
+  try {
+    const { geocodeAPI } = await import('../services/api');
+    const res = await geocodeAPI.search(clean, limit);
+    if (Array.isArray(res.data) && res.data.length > 0) {
+      return res.data;
+    }
+  } catch (backendErr) {
+    console.warn('Backend geocode proxy unavailable or error, falling back to Photon:', backendErr);
+  }
+
+  // Strategy 2: Photon by Komoot (Free, CORS-enabled, OpenStreetMap GeoJSON, NO 403s)
+  try {
+    const photonRes = await fetch(
+      `https://photon.komoot.io/api/?q=${encodeURIComponent(clean)}&limit=${limit}`
+    );
+    if (photonRes.ok) {
+      const geo = await photonRes.json();
+      if (geo && Array.isArray(geo.features) && geo.features.length > 0) {
+        return geo.features.map((feat) => {
+          const coords = feat.geometry?.coordinates || [0, 0];
+          const props = feat.properties || {};
+          const lon = coords[0];
+          const lat = coords[1];
+          const parts = [props.name, props.street, props.district || props.city, props.state, props.postcode, props.country].filter(Boolean);
+          return {
+            place_id: props.osm_id || Math.random(),
+            lat: String(lat),
+            lon: String(lon),
+            display_name: parts.join(', ') || props.name || clean,
+            name: props.name || props.city,
+            address: {
+              road: props.street,
+              city: props.city,
+              state: props.state,
+              postcode: props.postcode,
+              country: props.country,
+            }
+          };
+        });
+      }
+    }
+  } catch (photonErr) {
+    console.warn('Photon geocoding fallback failed:', photonErr);
+  }
+
+  // Strategy 3: Direct Nominatim (in case user agent is accepted)
+  try {
+    const osmRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(clean)}&format=jsonv2&addressdetails=1&limit=${limit}`,
+      { headers: { Accept: 'application/json' } }
+    );
+    if (osmRes.ok) {
+      const data = await osmRes.json();
+      if (Array.isArray(data) && data.length > 0) return data;
+    }
+  } catch (osmErr) {
+    console.warn('Direct Nominatim fallback failed:', osmErr);
+  }
+
+  return [];
+}
+
+/**
+ * Robust multi-strategy reverse geocode:
+ * 1. Backend reverse proxy (/api/geocode/reverse)
+ * 2. Photon reverse geocode
+ */
+export async function fetchReverseGeocode(lat, lon) {
+  if (lat == null || lon == null) return null;
+
+  // Strategy 1: Backend proxy (/api/geocode/reverse)
+  try {
+    const { geocodeAPI } = await import('../services/api');
+    const res = await geocodeAPI.reverse(lat, lon);
+    if (res.data && (res.data.display_name || res.data.address)) {
+      return res.data;
+    }
+  } catch (backendErr) {
+    console.warn('Backend reverse proxy unavailable, falling back:', backendErr);
+  }
+
+  // Strategy 2: Photon reverse (/reverse?lat=...&lon=...)
+  try {
+    const photonRes = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`);
+    if (photonRes.ok) {
+      const geo = await photonRes.json();
+      if (geo && Array.isArray(geo.features) && geo.features.length > 0) {
+        const feat = geo.features[0];
+        const props = feat.properties || {};
+        const parts = [props.name, props.street, props.district || props.city, props.state, props.postcode, props.country].filter(Boolean);
+        return {
+          display_name: parts.join(', ') || `Location (${Number(lat).toFixed(5)}, ${Number(lon).toFixed(5)})`,
+          name: props.name || props.city,
+          address: {
+            road: props.street,
+            city: props.city,
+            state: props.state,
+            postcode: props.postcode,
+            country: props.country,
+          }
+        };
+      }
+    }
+  } catch (photonErr) {
+    console.warn('Photon reverse geocode failed:', photonErr);
+  }
+
+  return {
+    display_name: `Location (${Number(lat).toFixed(5)}, ${Number(lon).toFixed(5)})`,
+    address: {}
+  };
+}
