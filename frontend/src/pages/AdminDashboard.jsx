@@ -10,7 +10,7 @@ import {
   LayoutDashboard, FileText, Users, TrendingUp, AlertTriangle,
   Clock, CheckCircle2, Filter, X, MoreVertical, Edit, Trash2,
   ArrowUpDown, Download, BarChart3, Building2, MapPin, FolderKanban,
-  Settings, ChevronLeft, ChevronRight, ThumbsUp, Activity, Zap, RefreshCw,
+  Settings, ChevronLeft, ChevronRight, ChevronDown, Search, ThumbsUp, Activity, Zap, RefreshCw,
   Sparkles, Sliders, ShieldAlert, Shield,
   UserCheck, User, Mail, Phone, Copy, Check, ExternalLink, Home, ShieldCheck, Navigation, Loader
 } from 'lucide-react'
@@ -35,6 +35,7 @@ export function AdminDashboard() {
     sort_by: 'priority_score',
     sort_order: 'desc',
   })
+  const [showFilterBar, setShowFilterBar] = useState(false)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [categories, setCategories] = useState([])
@@ -187,7 +188,21 @@ export function AdminDashboard() {
     setPage(1)
   }
 
-  const hasActiveFilters = filters.status || filters.category_id || filters.department_id || filters.needs_human_review || filters.search
+  const hasActiveFilters = Boolean(
+    filters.status || 
+    filters.category_id || 
+    filters.department_id || 
+    filters.needs_human_review || 
+    filters.search
+  )
+
+  const activeFilterCount = [
+    filters.status,
+    filters.category_id,
+    filters.department_id,
+    filters.needs_human_review,
+    filters.search,
+  ].filter(Boolean).length
 
   const handleOpenAssessmentModal = (complaint) => {
     setAssessmentTarget(complaint)
@@ -465,27 +480,159 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {/* Filters */}
-      <Card className="mb-6">
-        <CardContent className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-primary-400" />
-              <span className="text-body-sm font-medium text-text-secondary">Filters:</span>
+      {/* Table Section Header & Filter Action Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-heading-sm font-bold text-text-primary flex items-center gap-2">
+            <FolderKanban className="h-5 w-5 text-primary-400" />
+            {isDepartment ? 'Assigned Complaints Queue' : 'Complaints Master Registry'}
+          </h2>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-surface-card border border-border text-text-secondary">
+            {total} {total === 1 ? 'complaint' : 'complaints'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {hasActiveFilters && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={clearFilters}
+              className="text-text-muted hover:text-rose-400 text-xs gap-1.5"
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear Filters
+            </Button>
+          )}
+
+          <Button
+            variant={showFilterBar ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setShowFilterBar(prev => !prev)}
+            className={`gap-2 transition-all ${hasActiveFilters && !showFilterBar ? 'border-primary-500/50 text-primary-300' : ''}`}
+            aria-expanded={showFilterBar}
+            aria-label="Toggle Filters"
+          >
+            <Filter className="h-4 w-4" />
+            <span>Filter</span>
+            {activeFilterCount > 0 && (
+              <span className={`px-1.5 py-0.2 rounded-full text-[11px] font-bold ${showFilterBar ? 'bg-white text-primary-950' : 'bg-primary-500 text-white'}`}>
+                {activeFilterCount}
+              </span>
+            )}
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${showFilterBar ? 'rotate-180' : ''}`} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Active Filter Chips (visible when filter panel is collapsed so user knows what's applied) */}
+      {!showFilterBar && hasActiveFilters && (
+        <div className="flex flex-wrap items-center gap-2 mb-4 p-2.5 rounded-lg bg-surface-card/60 border border-border text-xs">
+          <span className="text-text-muted flex items-center gap-1 font-medium">
+            <Filter className="h-3 w-3 text-primary-400" />
+            Active filters:
+          </span>
+          {filters.search && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+              "{filters.search}"
+              <button type="button" onClick={() => handleFilterChange('search', '')} aria-label="Remove search filter"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          {filters.status && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+              Status: {getStatusConfig(filters.status).label}
+              <button type="button" onClick={() => handleFilterChange('status', '')} aria-label="Remove status filter"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          {filters.category_id && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+              Category: {categories.find(c => String(c.id) === String(filters.category_id))?.display_name || filters.category_id}
+              <button type="button" onClick={() => handleFilterChange('category_id', '')} aria-label="Remove category filter"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          {isAdmin && filters.department_id && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+              Dept: {departments.find(d => String(d.id) === String(filters.department_id))?.display_name || filters.department_id}
+              <button type="button" onClick={() => handleFilterChange('department_id', '')} aria-label="Remove department filter"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          {filters.needs_human_review && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+              Review: {filters.needs_human_review === 'true' ? 'Needs Review' : 'Verified'}
+              <button type="button" onClick={() => handleFilterChange('needs_human_review', '')} aria-label="Remove review filter"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="text-text-muted hover:text-rose-400 ml-auto transition-colors font-medium hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* Expandable Filter Panel */}
+      {showFilterBar && (
+        <Card className="mb-6 border-primary-500/20 bg-surface-card/90 backdrop-blur-md">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-border/60">
+              <div className="flex items-center gap-2 text-text-primary font-medium text-sm">
+                <Sliders className="h-4 w-4 text-primary-400" />
+                <span>Filter & Sort Complaints</span>
+                {activeFilterCount > 0 && (
+                  <span className="text-xs text-text-muted">({activeFilterCount} active)</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="text-xs text-text-muted hover:text-rose-400 transition-colors flex items-center gap-1 px-2 py-1 rounded hover:bg-rose-500/10"
+                  >
+                    <X className="h-3 w-3" />
+                    Reset All
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowFilterBar(false)}
+                  className="text-text-muted hover:text-text-primary p-1 rounded hover:bg-surface-elevated transition-colors"
+                  aria-label="Close filters"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3 flex-1">
-              <input
-                type="text"
-                placeholder="Search complaints..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                className="input flex-1 min-w-[200px]"
-                aria-label="Search complaints"
-              />
+
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search complaints..."
+                  value={filters.search}
+                  onChange={(e) => handleFilterChange('search', e.target.value)}
+                  className="input pl-9 w-full"
+                  aria-label="Search complaints"
+                />
+                {filters.search && (
+                  <button
+                    type="button"
+                    onClick={() => handleFilterChange('search', '')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
               <select
                 value={filters.status}
                 onChange={(e) => handleFilterChange('status', e.target.value)}
-                className="input w-auto"
+                className="input w-auto min-w-[130px]"
                 aria-label="Filter by status"
               >
                 <option value="">All Status</option>
@@ -494,10 +641,11 @@ export function AdminDashboard() {
                   return <option key={status} value={status}>{config.label}</option>
                 })}
               </select>
+
               <select
                 value={filters.category_id}
                 onChange={(e) => handleFilterChange('category_id', e.target.value)}
-                className="input w-auto"
+                className="input w-auto min-w-[150px]"
                 aria-label="Filter by category"
               >
                 <option value="">All Categories</option>
@@ -505,11 +653,12 @@ export function AdminDashboard() {
                   <option key={cat.id} value={cat.id}>{cat.display_name}</option>
                 ))}
               </select>
+
               {isAdmin && (
                 <select
                   value={filters.department_id}
                   onChange={(e) => handleFilterChange('department_id', e.target.value)}
-                  className="input w-auto"
+                  className="input w-auto min-w-[160px]"
                   aria-label="Filter by department"
                 >
                   <option value="">All Departments</option>
@@ -518,46 +667,82 @@ export function AdminDashboard() {
                   ))}
                 </select>
               )}
+
               <select
                 value={filters.needs_human_review}
                 onChange={(e) => handleFilterChange('needs_human_review', e.target.value)}
-                className="input w-auto"
+                className="input w-auto min-w-[160px]"
                 aria-label="Filter by review status"
               >
                 <option value="">All Review Status</option>
                 <option value="true">Needs Human Review</option>
                 <option value="false">Clear / Verified</option>
               </select>
-              <select
-                value={filters.sort_by}
-                onChange={(e) => handleFilterChange('sort_by', e.target.value)}
-                className="input w-auto"
-                aria-label="Sort by"
-              >
-                <option value="priority_score">Priority Score</option>
-                <option value="upvote_count">Upvotes</option>
-                <option value="created_at">Date Created</option>
-                <option value="status">Status</option>
-              </select>
-              <select
-                value={filters.sort_order}
-                onChange={(e) => handleFilterChange('sort_order', e.target.value)}
-                className="input w-auto"
-                aria-label="Sort order"
-              >
-                <option value="desc">Descending</option>
-                <option value="asc">Ascending</option>
-              </select>
-              {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={clearFilters}>
-                  <X className="h-3.5 w-3.5" />
-                  Clear
-                </Button>
-              )}
+
+              <div className="flex items-center gap-1.5 bg-surface-elevated/70 px-2.5 py-1 rounded-md border border-border/50">
+                <ArrowUpDown className="h-3.5 w-3.5 text-text-muted" />
+                <span className="text-xs text-text-muted font-medium">Sort:</span>
+                <select
+                  value={filters.sort_by}
+                  onChange={(e) => handleFilterChange('sort_by', e.target.value)}
+                  className="bg-transparent border-0 text-text-primary text-xs focus:ring-0 focus:outline-none cursor-pointer py-1"
+                  aria-label="Sort by"
+                >
+                  <option value="priority_score">Priority Score</option>
+                  <option value="upvote_count">Upvotes</option>
+                  <option value="created_at">Date Created</option>
+                  <option value="status">Status</option>
+                </select>
+                <select
+                  value={filters.sort_order}
+                  onChange={(e) => handleFilterChange('sort_order', e.target.value)}
+                  className="bg-transparent border-0 text-text-primary text-xs focus:ring-0 focus:outline-none cursor-pointer py-1 border-l border-border/40 pl-2"
+                  aria-label="Sort order"
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+
+            {hasActiveFilters && (
+              <div className="flex flex-wrap items-center gap-2 pt-3 mt-3 border-t border-border/40 text-xs">
+                <span className="text-text-muted">Applied:</span>
+                {filters.search && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+                    Search: "{filters.search}"
+                    <button type="button" onClick={() => handleFilterChange('search', '')}><X className="h-3 w-3" /></button>
+                  </span>
+                )}
+                {filters.status && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+                    Status: {getStatusConfig(filters.status).label}
+                    <button type="button" onClick={() => handleFilterChange('status', '')}><X className="h-3 w-3" /></button>
+                  </span>
+                )}
+                {filters.category_id && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+                    Category: {categories.find(c => String(c.id) === String(filters.category_id))?.display_name || filters.category_id}
+                    <button type="button" onClick={() => handleFilterChange('category_id', '')}><X className="h-3 w-3" /></button>
+                  </span>
+                )}
+                {isAdmin && filters.department_id && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+                    Dept: {departments.find(d => String(d.id) === String(filters.department_id))?.display_name || filters.department_id}
+                    <button type="button" onClick={() => handleFilterChange('department_id', '')}><X className="h-3 w-3" /></button>
+                  </span>
+                )}
+                {filters.needs_human_review && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
+                    Review: {filters.needs_human_review === 'true' ? 'Needs Review' : 'Verified'}
+                    <button type="button" onClick={() => handleFilterChange('needs_human_review', '')}><X className="h-3 w-3" /></button>
+                  </span>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Complaints Table */}
       {error && (
