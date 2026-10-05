@@ -8,7 +8,8 @@ from fastapi.responses import JSONResponse
 from db.session import get_db
 from models import (
     Complaint, Category, Department, 
-    ComplaintStatus, Citizen, Vote, User, UserRole
+    ComplaintStatus, Citizen, Vote, User, UserRole,
+    ComplaintStatusHistory
 )
 from schemas import (
     ComplaintCreate, ComplaintUpdate, ComplaintResponse, 
@@ -620,3 +621,44 @@ async def remove_upvote(
     db.commit()
     
     return {"message": "Upvote removed"}
+
+
+@router.delete("/{complaint_id}")
+async def delete_complaint(
+    complaint_id: int,
+    current_user = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a complaint.
+    - Admins can delete any complaint.
+    - Citizens can delete their own complaints if still pending.
+    - Department staff can delete complaints assigned to their department.
+    """
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+    
+    user_role = current_user.role.value if hasattr(current_user.role, 'value') else current_user.role
+    
+    if user_role == "admin":
+        pass  # Full permission
+    elif user_role == "citizen":
+        citizen = db.query(Citizen).filter(Citizen.user_id == current_user.id).first()
+        if not citizen or complaint.citizen_id != citizen.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own complaints")
+        complaint_status = complaint.status.value if hasattr(complaint.status, 'value') else complaint.status
+        if complaint_status != "pending":
+            raise ValidationException("Only pending complaints can be deleted by citizens")
+    elif user_role == "department":
+        from models import Admin as AdminModel
+        dept_user = db.query(AdminModel).filter(AdminModel.user_id == current_user.id).first()
+        if not dept_user or complaint.department_id != dept_user.department_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete complaints assigned to your department")
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unauthorized")
+        
+    db.query(Vote).filter(Vote.complaint_id == complaint_id).delete(synchronize_session=False)
+    db.query(ComplaintStatusHistory).filter(ComplaintStatusHistory.complaint_id == complaint_id).delete(synchronize_session=False)
+    db.delete(complaint)
+    db.commit()
+    return {"message": f"Complaint #{complaint_id} successfully deleted", "id": complaint_id}

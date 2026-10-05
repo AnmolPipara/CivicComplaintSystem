@@ -1,11 +1,11 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { complaintAPI } from '../services/api'
 import { useForm } from '../hooks/useForm'
 import { Button, Input, Textarea, Card, CardContent, Alert, Badge } from '../components/UI'
-import { Camera, X, CheckCircle2, ArrowRight } from 'lucide-react'
-import { classNames, formatErrorMessage } from '../utils/helpers'
+import { Camera, X, CheckCircle2, ArrowRight, MapPin, Search, Loader2, Sparkles } from 'lucide-react'
+import { classNames, formatErrorMessage, formatNominatimAddress } from '../utils/helpers'
 import { MapPicker } from '../components/MapPicker'
 
 const CATEGORIES = [
@@ -27,6 +27,14 @@ export function SubmitComplaintPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const fileInputRef = useRef(null)
+
+  // Location Autocomplete & Geocoding State
+  const [locationSuggestions, setLocationSuggestions] = useState([])
+  const [isSearchingLocation, setIsSearchingLocation] = useState(false)
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false)
+  const [locationAutoPinned, setLocationAutoPinned] = useState(false)
+  const searchTimeoutRef = useRef(null)
+  const locationContainerRef = useRef(null)
 
   const { values, errors, handleChange, handleBlur, handleSubmit, setFieldValue } = useForm({
     initialValues: {
@@ -72,6 +80,112 @@ export function SubmitComplaintPage() {
       }
     },
   })
+
+  // Geocode location query to suggestions using Nominatim
+  const searchGeocodeLocation = async (query) => {
+    if (!query || query.trim().length < 3) {
+      setLocationSuggestions([])
+      setIsSearchingLocation(false)
+      return
+    }
+    setIsSearchingLocation(true)
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=5`,
+        { headers: { Accept: 'application/json' } }
+      )
+      if (!res.ok) throw new Error('Search failed')
+      const data = await res.json()
+      if (Array.isArray(data) && data.length > 0) {
+        setLocationSuggestions(data)
+        setShowLocationDropdown(true)
+      } else {
+        const fallbackRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=jsonv2&addressdetails=1&limit=5`,
+          { headers: { Accept: 'application/json' } }
+        )
+        const fallbackData = await fallbackRes.json()
+        setLocationSuggestions(Array.isArray(fallbackData) ? fallbackData : [])
+        setShowLocationDropdown(Array.isArray(fallbackData) && fallbackData.length > 0)
+      }
+    } catch (err) {
+      console.warn('Geocoding search failed:', err)
+      setLocationSuggestions([])
+    } finally {
+      setIsSearchingLocation(false)
+    }
+  }
+
+  // Handle location input change with debounced geocoding
+  const handleLocationInputChange = (e) => {
+    const val = e.target.value
+    setFieldValue('location', val)
+    setLocationAutoPinned(false)
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+
+    if (val.trim().length >= 3) {
+      setIsSearchingLocation(true)
+      searchTimeoutRef.current = setTimeout(() => {
+        searchGeocodeLocation(val)
+      }, 500)
+    } else {
+      setLocationSuggestions([])
+      setShowLocationDropdown(false)
+      setIsSearchingLocation(false)
+    }
+  }
+
+  // Select a location suggestion: automatically mark map and refine address
+  const handleSelectLocationSuggestion = (item) => {
+    const lat = parseFloat(item.lat)
+    const lng = parseFloat(item.lon)
+    const refinedAddress = formatNominatimAddress(item, lat, lng)
+
+    setFieldValue('location', refinedAddress)
+    setFieldValue('latitude', lat)
+    setFieldValue('longitude', lng)
+    setLocationAutoPinned(true)
+    setShowLocationDropdown(false)
+    setLocationSuggestions([])
+  }
+
+  // Trigger geocode immediately and pick best match
+  const handleTriggerGeocode = async (e) => {
+    if (e) e.preventDefault()
+    if (!values.location.trim()) return
+    setIsSearchingLocation(true)
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(values.location)}&format=jsonv2&addressdetails=1&countrycodes=in&limit=1`,
+        { headers: { Accept: 'application/json' } }
+      )
+      const data = await res.json()
+      if (Array.isArray(data) && data.length > 0) {
+        handleSelectLocationSuggestion(data[0])
+      }
+    } catch (err) {
+      console.warn('Manual geocode error:', err)
+    } finally {
+      setIsSearchingLocation(false)
+    }
+  }
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (locationContainerRef.current && !locationContainerRef.current.contains(e.target)) {
+        setShowLocationDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    }
+  }, [])
 
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files)
@@ -163,21 +277,119 @@ export function SubmitComplaintPage() {
           {/* Step 2: Location */}
           <Card>
             <CardContent className="p-5">
-              <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Where is the issue?</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-heading-sm font-semibold text-text-primary">Where is the issue?</h2>
+                {values.latitude != null && values.longitude != null && (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-medium">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Map Marked & Address Refined
+                  </span>
+                )}
+              </div>
+
               <div className="space-y-4">
-                <Input
-                  label="Location Description"
-                  name="location"
-                  value={values.location}
-                  onChange={handleChange}
-                  onBlur={handleBlur}
-                  error={errors.location}
-                  placeholder="Enter the location details (e.g. Near Central Park, Main Street)"
-                />
-                
+                {/* Location Input with Live Autocomplete & Auto-Geocoding */}
+                <div className="relative" ref={locationContainerRef}>
+                  <label className="block text-body-sm font-medium text-text-secondary mb-1">
+                    Location / Landmark / Street Name
+                  </label>
+                  <div className="relative flex items-center">
+                    <div className="absolute left-3 text-text-muted pointer-events-none">
+                      <MapPin className="h-4 w-4 text-primary-400" />
+                    </div>
+                    <input
+                      type="text"
+                      name="location"
+                      value={values.location}
+                      onChange={handleLocationInputChange}
+                      onBlur={handleBlur}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          if (locationSuggestions.length > 0) {
+                            handleSelectLocationSuggestion(locationSuggestions[0])
+                          } else {
+                            handleTriggerGeocode()
+                          }
+                        }
+                      }}
+                      placeholder="Type location (e.g. Connaught Place, New Delhi or Indiranagar, Bengaluru)"
+                      className={classNames(
+                        'input w-full pl-9 pr-24 py-2.5',
+                        errors.location ? 'border-red-500 focus:border-red-500' : ''
+                      )}
+                      autoComplete="off"
+                    />
+                    <div className="absolute right-2 flex items-center gap-1">
+                      {isSearchingLocation ? (
+                        <span className="flex items-center gap-1 text-xs text-primary-400 px-2 py-1">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <span className="hidden sm:inline">Searching...</span>
+                        </span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-primary-400 hover:text-primary-300 py-1 px-2 h-auto"
+                          onClick={handleTriggerGeocode}
+                          title="Search and auto-mark on map"
+                        >
+                          <Search className="h-3.5 w-3.5 mr-1" />
+                          <span className="hidden sm:inline">Locate</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Suggestion Dropdown */}
+                  {showLocationDropdown && locationSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-card border border-border-strong shadow-2xl overflow-hidden backdrop-blur-lg divide-y divide-border/60">
+                      <div className="p-2 bg-surface-elevated/70 text-[11px] font-semibold text-text-muted uppercase tracking-wider flex items-center justify-between">
+                        <span>Matching Locations (Click to auto-mark on map)</span>
+                        <span className="text-primary-400">Auto-Refines Address</span>
+                      </div>
+                      {locationSuggestions.map((item, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleSelectLocationSuggestion(item)}
+                          className="w-full text-left p-3 hover:bg-surface-hover transition-colors flex items-start gap-2.5 group"
+                        >
+                          <div className="p-1.5 rounded-lg bg-primary-500/10 text-primary-400 group-hover:bg-primary-500 group-hover:text-white transition-colors shrink-0 mt-0.5">
+                            <MapPin className="h-4 w-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-text-primary text-body-sm group-hover:text-primary-300 transition-colors">
+                              {item.name || item.display_name.split(',')[0]}
+                            </p>
+                            <p className="text-caption text-text-muted truncate mt-0.5">
+                              {item.display_name}
+                            </p>
+                          </div>
+                          <span className="text-[11px] font-mono text-text-muted shrink-0 mt-1">
+                            {parseFloat(item.lat).toFixed(3)}, {parseFloat(item.lon).toFixed(3)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {errors.location && (
+                    <p className="mt-1.5 text-body-sm text-red-500">{errors.location}</p>
+                  )}
+
+                  {locationAutoPinned && values.latitude && values.longitude && (
+                    <p className="mt-2 text-xs text-emerald-400 flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                      <span>Map automatically pinned at <strong>{values.latitude.toFixed(4)}, {values.longitude.toFixed(4)}</strong> and address refined cleanly.</span>
+                    </p>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-body-sm font-medium text-text-secondary mb-1">
-                    Pinpoint on Map (Optional)
+                    Interactive Map (Auto-synchronized with location name above)
                   </label>
                   <MapPicker 
                     value={{ lat: values.latitude, lng: values.longitude, address: values.location }} 
@@ -186,6 +398,7 @@ export function SubmitComplaintPage() {
                       setFieldValue('longitude', pos.lng);
                       if (pos.address) {
                         setFieldValue('location', pos.address);
+                        setLocationAutoPinned(true);
                       }
                     }} 
                   />

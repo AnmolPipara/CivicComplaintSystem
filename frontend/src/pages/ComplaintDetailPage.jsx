@@ -8,7 +8,8 @@ import {
   UserCheck, Loader, CheckCircle2, XCircle,
   ArrowLeft, ThumbsUp, ChevronLeft, ChevronRight,
   Sparkles, AlertTriangle, Shield, RefreshCw, Edit, Scale, Navigation,
-  Mail, Phone, Copy, Check, ExternalLink, User, Home, ShieldCheck
+  Mail, Phone, Copy, Check, ExternalLink, User, Home, ShieldCheck,
+  Trash2, Building2
 } from 'lucide-react'
 import { formatDateTime, formatDate, formatRelativeTime, getStatusConfig, classNames, getInitials, generateAvatarColor, formatErrorMessage, calculateDistanceKm } from '../utils/helpers'
 import { LocationModal } from '../components/LocationModal'
@@ -23,6 +24,8 @@ export function ComplaintDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [upvoting, setUpvoting] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [imageIndex, setImageIndex] = useState(0)
   const [showAssignModal, setShowAssignModal] = useState(false)
@@ -293,6 +296,25 @@ export function ComplaintDetailPage() {
     }
   }
 
+  const handleConfirmDelete = async () => {
+    if (!complaint) return
+    setDeleting(true)
+    try {
+      if (isAdmin) {
+        await adminAPI.deleteComplaint(complaint.id)
+      } else {
+        await complaintAPI.delete(complaint.id)
+      }
+      setShowDeleteModal(false)
+      navigate(isAdmin ? '/admin' : '/dashboard')
+    } catch (err) {
+      console.error('Delete failed:', err)
+      alert(formatErrorMessage(err, 'Failed to delete complaint'))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="page-container">
@@ -368,39 +390,62 @@ export function ComplaintDetailPage() {
             </div>
           )}
           <StatusBadge status={complaint.status || 'pending'} size="lg" />
+          {(isAdmin || isDepartment || (isCitizen && complaint.status === 'pending')) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20"
+              onClick={() => setShowDeleteModal(true)}
+              title="Delete this complaint"
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Delete Complaint
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Main Content */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Description Card */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
+        {/* Left Column: Incident Description, Evidence, Priority Assessment & Timeline */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Description & Overview Card */}
           <Card>
             <CardContent className="p-5">
               <div className="flex items-start justify-between mb-4">
-                <h2 className="text-heading-sm font-semibold text-text-primary">Description</h2>
                 <div className="flex items-center gap-2">
+                  <h2 className="text-heading-sm font-semibold text-text-primary">Description</h2>
                   <Badge variant="primary">{complaint.category?.display_name || 'General'}</Badge>
                 </div>
-              </div>
-              <p className="text-body text-text-primary whitespace-pre-wrap">{complaint.description}</p>
-              
-              <div className="mt-4 flex flex-wrap items-center gap-4 text-body-sm text-text-secondary">
-                <span className="flex items-center gap-1">
-                  <MapPin className="h-4 w-4" />
-                  {complaint.location || 'Location not specified'}
-                </span>
-                <span className="flex items-center gap-1">
+                <span className="text-body-sm text-text-muted flex items-center gap-1">
                   <Clock className="h-4 w-4" />
                   Submitted {formatRelativeTime(complaint.created_at)}
                 </span>
+              </div>
+              <p className="text-body text-text-primary whitespace-pre-wrap leading-relaxed">{complaint.description}</p>
+              
+              <div className="mt-4 pt-4 border-t border-border flex flex-wrap items-center justify-between gap-3 text-body-sm text-text-secondary">
+                <span className="flex items-center gap-1.5 font-medium text-text-primary">
+                  <MapPin className="h-4 w-4 text-primary-400 shrink-0" />
+                  {complaint.location || 'Location not specified'}
+                </span>
                 {complaint.resolved_at && (
-                  <span className="flex items-center gap-1 text-emerald-400">
+                  <span className="flex items-center gap-1 text-emerald-400 font-medium">
                     <CheckCircle2 className="h-4 w-4" />
                     Resolved {formatRelativeTime(complaint.resolved_at)}
                   </span>
                 )}
               </div>
+
+              {/* Distance from logged in user if available */}
+              {user?.latitude != null && complaint?.latitude != null && (() => {
+                const dist = calculateDistanceKm(user.latitude, user.longitude, complaint.latitude, complaint.longitude)
+                return dist != null ? (
+                  <div className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-primary-500/10 text-primary-300 border border-primary-500/20">
+                    <Navigation className="h-3.5 w-3.5 text-primary-400" />
+                    <span>{dist <= 0.1 ? '< 100m' : `${dist.toFixed(1)} km`} from your community ({dist <= 25.0 ? 'Within 25 km' : 'Outside 25 km'})</span>
+                  </div>
+                ) : null
+              })()}
             </CardContent>
           </Card>
 
@@ -408,9 +453,14 @@ export function ComplaintDetailPage() {
           {evidenceUrls.length > 0 && (
             <Card>
               <CardContent className="p-5">
-                <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Evidence Photos</h2>
+                <h2 className="text-heading-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+                  <span>Evidence Photos</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-300 font-mono">
+                    {imageIndex + 1} / {evidenceUrls.length}
+                  </span>
+                </h2>
                 <div className="relative">
-                  <div className="aspect-video rounded-card overflow-hidden bg-surface-elevated">
+                  <div className="aspect-video rounded-card overflow-hidden bg-surface-elevated border border-border">
                     <img
                       src={evidenceUrls[imageIndex]}
                       alt={`Evidence ${imageIndex + 1}`}
@@ -420,7 +470,7 @@ export function ComplaintDetailPage() {
                   {evidenceUrls.length > 1 && (
                     <>
                       <button
-                         onClick={() => setImageIndex((i) => (i - 1 + evidenceUrls.length) % evidenceUrls.length)}
+                        onClick={() => setImageIndex((i) => (i - 1 + evidenceUrls.length) % evidenceUrls.length)}
                         className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-card/90 backdrop-blur flex items-center justify-center shadow-elevated border border-border hover:bg-surface-hover transition-colors"
                         aria-label="Previous image"
                       >
@@ -435,19 +485,201 @@ export function ComplaintDetailPage() {
                       </button>
                     </>
                   )}
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm">
                     {evidenceUrls.map((_, idx) => (
                       <button
                         key={idx}
                         onClick={() => setImageIndex(idx)}
                         className={classNames(
                           'w-2 h-2 rounded-full transition-colors',
-                          idx === imageIndex ? 'bg-white' : 'bg-white/30 hover:bg-white/60'
+                          idx === imageIndex ? 'bg-primary-400 w-4' : 'bg-white/40 hover:bg-white/70'
                         )}
                         aria-label={`View image ${idx + 1}`}
                       />
                     ))}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Priority Assessment Card (Admin Only) - Expanded & Spacious */}
+          {isAdmin && (
+            <Card className="border border-border-strong shadow-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-primary-500/15 via-transparent to-accent-500/10 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-primary-400" />
+                  <h2 className="text-heading-sm font-semibold text-text-primary">Priority Assessment</h2>
+                </div>
+                {complaint.priority_score != null && (
+                  <span className="font-mono text-xs font-semibold px-2.5 py-1 rounded-md bg-primary-500/10 border border-primary-500/20 text-primary-300">
+                    Formula Score: {Number(complaint.priority_score).toFixed(1)} / 100
+                  </span>
+                )}
+              </div>
+              <CardContent className="p-5 space-y-4">
+                {/* Score summary & status */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-surface-elevated border border-border">
+                  <div>
+                    <span className="text-caption uppercase tracking-wider text-text-muted font-bold">Total Priority Score</span>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-3xl font-bold font-mono text-text-primary">
+                        {complaint.priority_score !== null && complaint.priority_score !== undefined ? complaint.priority_score.toFixed(1) : '—'}
+                      </span>
+                      <span className="text-sm text-text-muted">/ 100</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={classNames(
+                      'text-caption font-semibold px-2.5 py-1 rounded-full border',
+                      complaint.assessment_status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                      complaint.assessment_status === 'provisional' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                      'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                    )}>
+                      {complaint.assessment_status === 'completed' ? 'AI Evaluated' :
+                       complaint.assessment_status === 'provisional' ? 'Provisional Baseline' :
+                       complaint.assessment_status || 'Pending'}
+                    </span>
+                    {complaint.assessment_confidence && (
+                      <span className="text-[11px] text-text-muted">
+                        Confidence: <span className="font-semibold text-text-secondary capitalize">{complaint.assessment_confidence}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Safety Alert or Review Needed */}
+                {complaint.is_safety_escalated && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-300 text-body-sm">
+                    <Shield className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-semibold text-rose-300">Immediate Safety Hazard Escalation</strong>
+                      <p className="text-xs text-rose-300/80 mt-0.5">This issue has an urgent safety hazard flag requiring prompt action.</p>
+                    </div>
+                  </div>
+                )}
+
+                {complaint.needs_human_review && (
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-300 text-body-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="font-semibold text-amber-300">Awaiting Admin Verification</strong>
+                      <p className="text-xs text-amber-300/80 mt-0.5">Vague evidence or potential safety risk flagged for human triage.</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Component Scores Breakdown (2-Column Grid on md) */}
+                <div className="pt-2">
+                  <span className="text-caption font-bold tracking-wider text-text-muted uppercase block mb-3">Formula Breakdown</span>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {/* Severity */}
+                    <div className="p-3 rounded-lg bg-surface-elevated/50 border border-border">
+                      <div className="flex justify-between text-body-sm mb-1.5">
+                        <span className="text-text-secondary flex items-center gap-1.5">
+                          Severity <span className="text-[11px] text-text-muted">(40%)</span>
+                        </span>
+                        <span className="font-mono font-semibold text-text-primary">
+                          {complaint.severity_score !== null ? `${complaint.severity_score}/100` : '—'}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-surface-hover rounded-full overflow-hidden">
+                        <div className="h-full bg-red-400 rounded-full transition-all" style={{ width: `${complaint.severity_score || 0}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Public Impact */}
+                    <div className="p-3 rounded-lg bg-surface-elevated/50 border border-border">
+                      <div className="flex justify-between text-body-sm mb-1.5">
+                        <span className="text-text-secondary flex items-center gap-1.5">
+                          Public Impact <span className="text-[11px] text-text-muted">(25%)</span>
+                        </span>
+                        <span className="font-mono font-semibold text-text-primary">
+                          {complaint.impact_score !== null ? `${complaint.impact_score}/100` : '—'}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-surface-hover rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${complaint.impact_score || 0}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Urgency */}
+                    <div className="p-3 rounded-lg bg-surface-elevated/50 border border-border">
+                      <div className="flex justify-between text-body-sm mb-1.5">
+                        <span className="text-text-secondary flex items-center gap-1.5">
+                          Urgency <span className="text-[11px] text-text-muted">(20%)</span>
+                        </span>
+                        <span className="font-mono font-semibold text-text-primary">
+                          {complaint.urgency_score !== null ? `${complaint.urgency_score}/100` : '—'}
+                        </span>
+                      </div>
+                      <div className="h-2 bg-surface-hover rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${complaint.urgency_score || 0}%` }} />
+                      </div>
+                    </div>
+
+                    {/* Citizen Support */}
+                    <div className="p-3 rounded-lg bg-surface-elevated/50 border border-border">
+                      <div className="flex justify-between text-body-sm mb-1.5">
+                        <span className="text-text-secondary flex items-center gap-1.5">
+                          Citizen Support <span className="text-[11px] text-text-muted">(15%)</span>
+                        </span>
+                        <span className="font-mono font-semibold text-text-primary">
+                          {complaint.upvote_count || 0} votes
+                        </span>
+                      </div>
+                      <div className="h-2 bg-surface-hover rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-emerald-400 rounded-full transition-all" 
+                          style={{ 
+                            width: `${Math.min(100, Math.round(100 * (Math.log(1 + (complaint.upvote_count || 0)) / Math.log(51))))}%` 
+                          }} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reason / Explanation */}
+                {complaint.assessment_reason && (
+                  <div className="p-3 rounded-xl bg-surface-elevated/60 border border-border">
+                    <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">Assessment Rationale</span>
+                    <p className="text-body-sm text-text-secondary leading-relaxed">{complaint.assessment_reason}</p>
+                  </div>
+                )}
+
+                {/* Missing Information Tags */}
+                {complaint.missing_information && complaint.missing_information.length > 0 && (
+                  <div>
+                    <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1.5">Missing Details for Higher Confidence</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {complaint.missing_information.map((item, idx) => (
+                        <span key={idx} className="text-caption px-2 py-0.5 rounded-badge bg-surface-hover/60 border border-border text-text-muted">
+                          • {item}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Admin Override Indicator */}
+                {complaint.admin_override && (
+                  <div className="p-2.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300 flex items-center gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-primary-400 shrink-0" />
+                    <span>Admin Verified {complaint.admin_override_reason ? `: "${complaint.admin_override_reason}"` : ''}</span>
+                  </div>
+                )}
+
+                {/* Admin Actions */}
+                <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
+                  <Button variant="primary" size="sm" className="flex-1 justify-center" onClick={handleOpenAssessment}>
+                    <Edit className="h-3.5 w-3.5" />
+                    Review / Adjust Assessment
+                  </Button>
+                  <Button variant="ghost" size="sm" className="flex-1 justify-center text-xs" onClick={handleReassess} disabled={reassessing}>
+                    <RefreshCw className={classNames('h-3.5 w-3.5', reassessing ? 'animate-spin' : '')} />
+                    {reassessing ? 'Re-evaluating with AI...' : 'Re-run AI Assessment'}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -495,7 +727,7 @@ export function ComplaintDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Upvote Section */}
+          {/* Citizen Upvote Section */}
           {isCitizen && (
             <Card>
               <CardContent className="p-5">
@@ -541,11 +773,11 @@ export function ComplaintDetailPage() {
             </Card>
           )}
 
-          {/* Comments/Updates */}
+          {/* Activity / Status Updates Log */}
           {complaint.status_history && complaint.status_history.length > 0 && (
             <Card>
               <CardContent className="p-5">
-                <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Updates</h2>
+                <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Updates & Activity Log</h2>
                 <div className="space-y-4">
                   {complaint.status_history.slice().reverse().map((entry) => (
                     <div key={entry.id} className="flex gap-3">
@@ -566,191 +798,8 @@ export function ComplaintDetailPage() {
           )}
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Priority Assessment Card (Admin Only) */}
-          {isAdmin && (
-            <Card className="border border-border-strong shadow-card overflow-hidden">
-              <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-primary-500/10 via-transparent to-accent-500/10 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary-400" />
-                  <h2 className="text-heading-sm font-semibold text-text-primary">Priority Assessment</h2>
-                </div>
-                {complaint.priority_score != null && (
-                  <span className="font-mono text-xs font-semibold px-2.5 py-1 rounded-md bg-primary-500/10 border border-primary-500/20 text-primary-300">
-                    Formula Score: {Number(complaint.priority_score).toFixed(1)} / 100
-                  </span>
-                )}
-              </div>
-            <CardContent className="p-5 space-y-4">
-              {/* Score summary & status */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-surface-elevated border border-border">
-                <div>
-                  <span className="text-caption uppercase tracking-wider text-text-muted font-bold">Total Priority Score</span>
-                  <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className="text-2xl font-bold font-mono text-text-primary">
-                      {complaint.priority_score !== null && complaint.priority_score !== undefined ? complaint.priority_score.toFixed(1) : '—'}
-                    </span>
-                    <span className="text-xs text-text-muted">/ 100</span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={classNames(
-                    'text-caption font-semibold px-2 py-0.5 rounded-full border',
-                    complaint.assessment_status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                    complaint.assessment_status === 'provisional' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                    'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                  )}>
-                    {complaint.assessment_status === 'completed' ? 'AI Evaluated' :
-                     complaint.assessment_status === 'provisional' ? 'Provisional Baseline' :
-                     complaint.assessment_status || 'Pending'}
-                  </span>
-                  {complaint.assessment_confidence && (
-                    <span className="text-[11px] text-text-muted">
-                      Confidence: <span className="font-semibold text-text-secondary capitalize">{complaint.assessment_confidence}</span>
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Safety Alert or Review Needed */}
-              {complaint.is_safety_escalated && (
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-300 text-body-sm">
-                  <Shield className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="font-semibold text-rose-300">Immediate Safety Hazard Escalation</strong>
-                    <p className="text-xs text-rose-300/80 mt-0.5">This issue has an urgent safety hazard flag requiring prompt action.</p>
-                  </div>
-                </div>
-              )}
-
-              {complaint.needs_human_review && (
-                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-amber-300 text-body-sm">
-                  <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="font-semibold text-amber-300">Awaiting Admin Verification</strong>
-                    <p className="text-xs text-amber-300/80 mt-0.5">Vague evidence or potential safety risk flagged for human triage.</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Component Scores Breakdown */}
-              <div className="space-y-3 pt-2">
-                <span className="text-caption font-bold tracking-wider text-text-muted uppercase">Formula Breakdown</span>
-                
-                {/* Severity */}
-                <div>
-                  <div className="flex justify-between text-body-sm mb-1">
-                    <span className="text-text-secondary flex items-center gap-1.5">
-                      Severity <span className="text-[11px] text-text-muted">(40%)</span>
-                    </span>
-                    <span className="font-mono font-semibold text-text-primary">
-                      {complaint.severity_score !== null ? `${complaint.severity_score}/100` : '—'}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-red-400 rounded-full transition-all" style={{ width: `${complaint.severity_score || 0}%` }} />
-                  </div>
-                </div>
-
-                {/* Public Impact */}
-                <div>
-                  <div className="flex justify-between text-body-sm mb-1">
-                    <span className="text-text-secondary flex items-center gap-1.5">
-                      Public Impact <span className="text-[11px] text-text-muted">(25%)</span>
-                    </span>
-                    <span className="font-mono font-semibold text-text-primary">
-                      {complaint.impact_score !== null ? `${complaint.impact_score}/100` : '—'}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-amber-400 rounded-full transition-all" style={{ width: `${complaint.impact_score || 0}%` }} />
-                  </div>
-                </div>
-
-                {/* Urgency */}
-                <div>
-                  <div className="flex justify-between text-body-sm mb-1">
-                    <span className="text-text-secondary flex items-center gap-1.5">
-                      Urgency <span className="text-[11px] text-text-muted">(20%)</span>
-                    </span>
-                    <span className="font-mono font-semibold text-text-primary">
-                      {complaint.urgency_score !== null ? `${complaint.urgency_score}/100` : '—'}
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${complaint.urgency_score || 0}%` }} />
-                  </div>
-                </div>
-
-                {/* Citizen Support */}
-                <div>
-                  <div className="flex justify-between text-body-sm mb-1">
-                    <span className="text-text-secondary flex items-center gap-1.5">
-                      Citizen Support <span className="text-[11px] text-text-muted">(15%)</span>
-                    </span>
-                    <span className="font-mono font-semibold text-text-primary">
-                      {complaint.upvote_count || 0} votes
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-emerald-400 rounded-full transition-all" 
-                      style={{ 
-                        width: `${Math.min(100, Math.round(100 * (Math.log(1 + (complaint.upvote_count || 0)) / Math.log(51))))}%` 
-                      }} 
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Reason / Explanation */}
-              {complaint.assessment_reason && (
-                <div className="p-3 rounded-xl bg-surface-elevated/60 border border-border">
-                  <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1">Assessment Rationale</span>
-                  <p className="text-body-sm text-text-secondary leading-relaxed">{complaint.assessment_reason}</p>
-                </div>
-              )}
-
-              {/* Missing Information Tags */}
-              {complaint.missing_information && complaint.missing_information.length > 0 && (
-                <div>
-                  <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider block mb-1.5">Missing Details for Higher Confidence</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {complaint.missing_information.map((item, idx) => (
-                      <span key={idx} className="text-caption px-2 py-0.5 rounded-badge bg-surface-hover/60 border border-border text-text-muted">
-                        • {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Admin Override Indicator */}
-              {complaint.admin_override && (
-                <div className="p-2.5 rounded-lg bg-primary-500/10 border border-primary-500/20 text-xs text-primary-300 flex items-center gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-primary-400 shrink-0" />
-                  <span>Admin Verified {complaint.admin_override_reason ? `: "${complaint.admin_override_reason}"` : ''}</span>
-                </div>
-              )}
-
-              {/* Admin Actions */}
-              {isAdmin && (
-                <div className="pt-2 flex flex-col gap-2">
-                  <Button variant="primary" size="sm" className="w-full justify-center" onClick={handleOpenAssessment}>
-                    <Edit className="h-3.5 w-3.5" />
-                    Review / Adjust Assessment
-                  </Button>
-                  <Button variant="ghost" size="sm" className="w-full justify-center text-xs" onClick={handleReassess} disabled={reassessing}>
-                    <RefreshCw className={classNames('h-3.5 w-3.5', reassessing ? 'animate-spin' : '')} />
-                    {reassessing ? 'Re-evaluating with AI...' : 'Re-run AI Assessment'}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          )}
-
+        {/* Right Column: Person Applying (Citizen Profile) & Complaint Info / Management */}
+        <div className="lg:col-span-5 space-y-6">
           {/* Applicant Details Card (Admin & Department Admin Only) */}
           {(isAdmin || isDepartment) && (
             <Card className="border border-primary-500/30 shadow-card bg-surface-card overflow-hidden">
@@ -870,7 +919,7 @@ export function ComplaintDetailPage() {
                         </div>
                       </div>
 
-                      {/* Relative Proximity to Incident */}
+                      {/* Proximity to Incident */}
                       {applicant.latitude != null && complaint?.latitude != null && (() => {
                         const dist = calculateDistanceKm(applicant.latitude, applicant.longitude, complaint.latitude, complaint.longitude)
                         if (dist == null) return null
@@ -931,102 +980,106 @@ export function ComplaintDetailPage() {
             </Card>
           )}
 
-          {/* Info Card */}
+          {/* Consolidated Complaint Management & Info Card */}
           <Card>
-            <CardContent className="p-5">
-              <h2 className="text-heading-sm font-semibold text-text-primary mb-4">Complaint Info</h2>
-              <dl className="space-y-4 text-body-sm">
-                <div>
-                  <dt className="text-text-muted">Complaint ID</dt>
-                  <dd className="font-mono text-text-primary">#{complaint.id}</dd>
+            <CardContent className="p-5 space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-border">
+                <h2 className="text-heading-sm font-semibold text-text-primary flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary-400" />
+                  Complaint Management
+                </h2>
+                <span className="font-mono text-xs px-2 py-0.5 rounded bg-surface-elevated text-text-muted">
+                  ID #{complaint.id}
+                </span>
+              </div>
+
+              {/* Department Actions for Department Role */}
+              {isDepartment && complaint.status !== 'completed' && (
+                <div className="p-3.5 rounded-xl border border-primary-500/30 bg-primary-500/10 space-y-2">
+                  <span className="text-caption uppercase font-bold text-primary-300 tracking-wider block">Department Actions</span>
+                  {complaint.status === 'pending' ? (
+                    <Button variant="primary" className="w-full justify-center" onClick={() => requestStatusChange('working')} loading={updatingStatus}>
+                      Start Work
+                    </Button>
+                  ) : complaint.status === 'working' ? (
+                    <Button variant="success" className="w-full justify-center" onClick={() => requestStatusChange('completed')} loading={updatingStatus}>
+                      Mark Completed
+                    </Button>
+                  ) : null}
                 </div>
-                <div>
+              )}
+
+              {/* Department Assignment for Admin Role */}
+              {isAdmin && (
+                <div className="p-3.5 rounded-xl border border-border bg-surface-elevated/60 space-y-2.5">
+                  <span className="text-caption uppercase font-bold text-text-muted tracking-wider block">Assigned Department</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-text-primary text-body-sm flex items-center gap-1.5">
+                      <Building2 className="h-4 w-4 text-primary-400" />
+                      {complaint.department?.display_name || 'Unassigned'}
+                    </span>
+                    <Button variant="secondary" size="sm" onClick={openAssignModal}>
+                      {complaint.department_id ? 'Reassign' : 'Assign'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Key Attributes List */}
+              <dl className="space-y-3 text-body-sm divide-y divide-border/60">
+                <div className="flex justify-between items-center pt-2 first:pt-0">
+                  <dt className="text-text-muted">Status</dt>
+                  <dd><StatusBadge status={complaint.status || 'pending'} size="sm" /></dd>
+                </div>
+                <div className="flex justify-between items-center pt-2">
                   <dt className="text-text-muted">Category</dt>
                   <dd className="font-medium text-text-primary">{complaint.category?.display_name || 'General'}</dd>
                 </div>
-                <div>
-                  <dt className="text-text-muted">Status</dt>
-                  <dd className="flex items-center gap-2">
-                    <StatusBadge status={complaint.status || 'pending'} />
-                  </dd>
+                <div className="flex justify-between items-start pt-2 gap-4">
+                  <dt className="text-text-muted shrink-0">Location</dt>
+                  <dd className="font-medium text-text-primary text-right break-words">{complaint.location}</dd>
                 </div>
-                <div>
-                  <dt className="text-text-muted">Location</dt>
-                  <dd className="font-medium text-text-primary">{complaint.location}</dd>
-                  {user?.latitude != null && complaint?.latitude != null && (() => {
-                    const dist = calculateDistanceKm(user.latitude, user.longitude, complaint.latitude, complaint.longitude)
-                    return dist != null ? (
-                      <div className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-primary-500/10 text-primary-300 border border-primary-500/20">
-                        <Navigation className="h-3.5 w-3.5 text-primary-400" />
-                        <span>{dist <= 0.1 ? '< 100m' : `${dist.toFixed(1)} km`} from your community ({dist <= 25.0 ? 'Within 25 km' : 'Outside 25 km'})</span>
-                      </div>
-                    ) : null
-                  })()}
-                </div>
-                <div>
+                <div className="flex justify-between items-center pt-2">
                   <dt className="text-text-muted">Submitted</dt>
                   <dd className="font-medium text-text-primary">{formatDateTime(complaint.created_at)}</dd>
                 </div>
                 {complaint.assigned_at && (
-                  <div>
+                  <div className="flex justify-between items-center pt-2">
                     <dt className="text-text-muted">Assigned</dt>
                     <dd className="font-medium text-text-primary">{formatDateTime(complaint.assigned_at)}</dd>
                   </div>
                 )}
                 {complaint.resolved_at && (
-                  <div>
+                  <div className="flex justify-between items-center pt-2">
                     <dt className="text-text-muted">Resolved</dt>
                     <dd className="font-medium text-emerald-400">{formatDateTime(complaint.resolved_at)}</dd>
                   </div>
                 )}
-                {complaint.department && (
-                  <div>
-                    <dt className="text-text-muted">Department</dt>
-                    <dd className="font-medium text-text-primary">{complaint.department.display_name}</dd>
-                  </div>
-                )}
-                <div>
-                  <dt className="text-text-muted">Total Upvotes</dt>
-                  <dd className="font-medium text-text-primary">{complaint.upvote_count || 0}</dd>
+                <div className="flex justify-between items-center pt-2">
+                  <dt className="text-text-muted">Citizen Upvotes</dt>
+                  <dd className="font-bold text-amber-400 flex items-center gap-1 font-mono">
+                    <ThumbsUp className="h-3.5 w-3.5" />
+                    {complaint.upvote_count || 0}
+                  </dd>
                 </div>
               </dl>
+
+              {/* Danger Zone: Delete Complaint */}
+              {(isAdmin || isDepartment || (isCitizen && complaint.status === 'pending')) && (
+                <div className="pt-3 border-t border-border">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-center text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-rose-500/20"
+                    onClick={() => setShowDeleteModal(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1.5" />
+                    Delete Complaint
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
-
-          {/* Department Actions - only available in Department handles */}
-          {isDepartment && complaint.status !== 'completed' && (
-            <Card className="border-primary-500/20 bg-primary-500/5">
-              <CardContent className="p-5">
-                <h2 className="text-heading-sm font-semibold text-primary-400 mb-4">Department Actions</h2>
-                <div className="space-y-2">
-                  {complaint.status === 'pending' ? (
-                    <Button variant="primary" className="w-full" onClick={() => requestStatusChange('working')} loading={updatingStatus}>
-                      Start Work
-                    </Button>
-                  ) : complaint.status === 'working' ? (
-                    <Button variant="success" className="w-full" onClick={() => requestStatusChange('completed')} loading={updatingStatus}>
-                      Mark Completed
-                    </Button>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Admin Assignment Action - Admin role is to assign work */}
-          {isAdmin && (
-            <Card className="border-border">
-              <CardContent className="p-5">
-                <h2 className="text-heading-sm font-semibold text-text-primary mb-3">Department Assignment</h2>
-                <p className="text-body-sm text-text-secondary mb-4">
-                  Assigned to: <strong className="text-text-primary">{complaint.department?.display_name || 'Unassigned'}</strong>
-                </p>
-                <Button variant="secondary" className="w-full" onClick={openAssignModal}>
-                  {complaint.department_id ? 'Reassign Department' : 'Assign Department'}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
 
@@ -1197,6 +1250,44 @@ export function ComplaintDetailPage() {
           </div>
         </Modal>
       )}
+
+      {/* Delete Complaint Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => !deleting && setShowDeleteModal(false)}
+        title="Delete Complaint"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300">
+            <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="text-body-sm">
+              <p className="font-semibold text-rose-200">Are you sure you want to delete this complaint?</p>
+              <p className="mt-1 text-rose-300/80 leading-relaxed">
+                Complaint <strong>#{complaint?.id}</strong> ({complaint?.category?.display_name || 'Civic Issue'}) and all associated citizen votes, timeline records, and data will be permanently deleted.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleConfirmDelete}
+              loading={deleting}
+              disabled={deleting}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Permanently Delete
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Location Modal for Setting Profile Location before Upvoting */}
       <LocationModal

@@ -155,6 +155,8 @@ export function MapPicker({ value, onChange }) {
       const vLng = Number(value.lng);
       if (!position || Math.abs(position.lat - vLat) > 0.00001 || Math.abs(position.lng - vLng) > 0.00001) {
         setPosition({ lat: vLat, lng: vLng });
+        setFlyTarget([vLat, vLng]);
+        setFlyZoom(16);
       }
     } else if (value?.lat == null && value?.lng == null && position) {
       setPosition(null);

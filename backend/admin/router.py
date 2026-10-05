@@ -494,3 +494,21 @@ async def get_recent_email_notifications(
     """Get log of recent email notifications sent to citizens"""
     from common.email_service import SENT_EMAILS_LOG
     return {"emails": SENT_EMAILS_LOG[-50:]}
+
+
+@router.delete("/complaints/{complaint_id}")
+async def delete_complaint_admin(
+    complaint_id: int,
+    current_user = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Delete a complaint from the admin panel"""
+    complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint:
+        raise NotFoundException("Complaint not found")
+        
+    db.query(Vote).filter(Vote.complaint_id == complaint_id).delete(synchronize_session=False)
+    db.query(ComplaintStatusHistory).filter(ComplaintStatusHistory.complaint_id == complaint_id).delete(synchronize_session=False)
+    db.delete(complaint)
+    db.commit()
+    return {"message": f"Complaint #{complaint_id} successfully deleted", "id": complaint_id}

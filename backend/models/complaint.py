@@ -62,8 +62,8 @@ class Complaint(Base):
     citizen = relationship("Citizen", back_populates="complaints")
     category = relationship("Category", back_populates="complaints")
     department = relationship("Department", back_populates="complaints")
-    votes = relationship("Vote", back_populates="complaint")
-    status_history = relationship("ComplaintStatusHistory", back_populates="complaint", order_by="ComplaintStatusHistory.created_at")
+    votes = relationship("Vote", back_populates="complaint", cascade="all, delete-orphan")
+    status_history = relationship("ComplaintStatusHistory", back_populates="complaint", order_by="ComplaintStatusHistory.created_at", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_complaints_status_created", "status", "created_at"),

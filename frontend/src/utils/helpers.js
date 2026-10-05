@@ -249,3 +249,25 @@ export function calculateDistanceKm(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
+
+export function formatNominatimAddress(data, lat, lng) {
+  if (!data) return (lat != null && lng != null) ? `Location (${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)})` : '';
+  const addr = data.address || {};
+  const parts = [];
+
+  const place = data.name || addr.amenity || addr.building || addr.road || addr.pedestrian || addr.footway || addr.path;
+  if (place) parts.push(place);
+
+  const locality = addr.suburb || addr.neighbourhood || addr.residential || addr.quarter || addr.village;
+  if (locality && !parts.includes(locality)) parts.push(locality);
+
+  const city = addr.city || addr.town || addr.county || addr.city_district || addr.state_district;
+  if (city && !parts.includes(city)) parts.push(city);
+
+  if (addr.state && !parts.includes(addr.state)) parts.push(addr.state);
+
+  if (addr.postcode) parts.push(addr.postcode);
+
+  const concise = parts.join(', ');
+  return concise || data.display_name || ((lat != null && lng != null) ? `Location (${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)})` : '');
+}

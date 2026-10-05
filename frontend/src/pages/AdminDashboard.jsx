@@ -74,6 +74,11 @@ export function AdminDashboard() {
   const [loadingApplicantModal, setLoadingApplicantModal] = useState(false)
   const [copiedField, setCopiedField] = useState(null)
 
+  // Delete Complaint Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+
   const handleCopy = (text, field) => {
     if (!text) return
     navigator.clipboard.writeText(text)
@@ -296,6 +301,33 @@ export function AdminDashboard() {
       alert(formatErrorMessage(err, 'Failed to update status. Please ensure your department is authorized for this complaint.'))
     } finally {
       setUpdatingStatus(false)
+    }
+  }
+
+  const handleOpenDeleteModal = (complaint) => {
+    setDeleteTarget(complaint)
+    setShowDeleteModal(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      if (isAdmin) {
+        await adminAPI.deleteComplaint(deleteTarget.id)
+      } else {
+        await complaintAPI.delete(deleteTarget.id)
+      }
+      setComplaints((prev) => prev.filter((c) => c.id !== deleteTarget.id))
+      setTotal((prev) => Math.max(0, prev - 1))
+      setShowDeleteModal(false)
+      setDeleteTarget(null)
+      if (isAdmin) fetchStats()
+    } catch (err) {
+      console.error('Delete failed:', err)
+      alert(formatErrorMessage(err, 'Failed to delete complaint'))
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -704,6 +736,16 @@ export function AdminDashboard() {
                             )}
                           </>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                          onClick={() => handleOpenDeleteModal(complaint)}
+                          title="Delete Complaint"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 mr-1" />
+                          Delete
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -1143,6 +1185,44 @@ export function AdminDashboard() {
             No applicant details available for this incident.
           </div>
         )}
+      </Modal>
+
+      {/* Delete Complaint Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={() => !deleting && setShowDeleteModal(false)}
+        title="Delete Complaint"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300">
+            <AlertTriangle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="text-body-sm">
+              <p className="font-semibold text-rose-200">Are you sure you want to delete this complaint?</p>
+              <p className="mt-1 text-rose-300/80 leading-relaxed">
+                Complaint <strong>#{deleteTarget?.id}</strong> ({deleteTarget?.category?.display_name || 'Civic Issue'}) and all associated citizen votes, timeline records, and data will be permanently removed.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => setShowDeleteModal(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleConfirmDelete}
+              loading={deleting}
+              disabled={deleting}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              Permanently Delete
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   )
