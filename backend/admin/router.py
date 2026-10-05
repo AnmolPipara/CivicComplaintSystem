@@ -356,7 +356,7 @@ async def list_categories(
     db: Session = Depends(get_db)
 ):
     """List all categories"""
-    return db.query(Category).filter(Category.is_active == True).all()
+    return db.query(Category).filter(Category.is_active == True, ~Category.name.like('pot_%')).order_by(Category.id).all()
 
 
 @router.put("/categories/{category_id}", response_model=CategoryResponse)

@@ -190,3 +190,19 @@
   mask-composite: exclude;
   pointer-events: none;
 }
+
+/* Native select option dark theme contrast guarantee across all browsers */
+select option {
+  background-color: #141e35 !important;
+  color: #f1f5f9 !important;
+}
+
+select option:checked {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+select option:hover {
+  background-color: #1e293b !important;
+  color: #ffffff !important;
+}

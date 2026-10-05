@@ -19,6 +19,17 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 
 const STATUS_ORDER = ['pending', 'working', 'completed']
 
+export const CITIZEN_CATEGORIES = [
+  { id: 1, name: 'pothole', display_name: 'Pothole / Road Damage' },
+  { id: 2, name: 'garbage', display_name: 'Garbage / Waste' },
+  { id: 3, name: 'water_leakage', display_name: 'Water Leakage' },
+  { id: 4, name: 'streetlight', display_name: 'Streetlight Issue' },
+  { id: 5, name: 'sewage_overflow', display_name: 'Sewage Overflow' },
+  { id: 6, name: 'traffic_signal', display_name: 'Traffic Signal' },
+  { id: 7, name: 'footpath', display_name: 'Footpath / Sidewalk' },
+  { id: 8, name: 'drainage', display_name: 'Drainage / Waterlogging' },
+]
+
 export function AdminDashboard() {
   const { user, isAdmin, isDepartment } = useAuth()
   const navigate = useNavigate()
@@ -38,7 +49,7 @@ export function AdminDashboard() {
   const [showFilterBar, setShowFilterBar] = useState(false)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [categories, setCategories] = useState([])
+  const [categories, setCategories] = useState(CITIZEN_CATEGORIES)
   const [departments, setDepartments] = useState([])
   const pageSize = 20
   const [showAssignModal, setShowAssignModal] = useState(false)
@@ -136,12 +147,23 @@ export function AdminDashboard() {
   }
 
   const fetchCategories = async () => {
-    if (!isAdmin) return;
     try {
+      if (!isAdmin) {
+        setCategories(CITIZEN_CATEGORIES)
+        return
+      }
       const response = await adminAPI.categories()
-      setCategories(response.data)
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        const filtered = response.data.filter(cat => 
+          !cat.name?.startsWith('pot_') &&
+          CITIZEN_CATEGORIES.some(c => c.id === cat.id || c.name === cat.name)
+        )
+        setCategories(filtered.length > 0 ? filtered : CITIZEN_CATEGORIES)
+      } else {
+        setCategories(CITIZEN_CATEGORIES)
+      }
     } catch (err) {
-      console.error('Failed to fetch categories:', err)
+      setCategories(CITIZEN_CATEGORIES)
     }
   }
 
@@ -546,7 +568,7 @@ export function AdminDashboard() {
           )}
           {filters.category_id && (
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
-              Category: {categories.find(c => String(c.id) === String(filters.category_id))?.display_name || filters.category_id}
+              Category: {CITIZEN_CATEGORIES.find(c => String(c.id) === String(filters.category_id))?.display_name || filters.category_id}
               <button type="button" onClick={() => handleFilterChange('category_id', '')} aria-label="Remove category filter"><X className="h-3 w-3" /></button>
             </span>
           )}
@@ -645,12 +667,12 @@ export function AdminDashboard() {
               <select
                 value={filters.category_id}
                 onChange={(e) => handleFilterChange('category_id', e.target.value)}
-                className="input w-auto min-w-[150px]"
+                className="input w-auto min-w-[170px] bg-[#141e35] text-slate-100"
                 aria-label="Filter by category"
               >
-                <option value="">All Categories</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.display_name}</option>
+                <option value="" className="bg-[#141e35] text-slate-100">All Categories</option>
+                {CITIZEN_CATEGORIES.map((cat) => (
+                  <option key={cat.id} value={cat.id} className="bg-[#141e35] text-slate-100">{cat.display_name}</option>
                 ))}
               </select>
 
@@ -658,12 +680,12 @@ export function AdminDashboard() {
                 <select
                   value={filters.department_id}
                   onChange={(e) => handleFilterChange('department_id', e.target.value)}
-                  className="input w-auto min-w-[160px]"
+                  className="input w-auto min-w-[160px] bg-[#141e35] text-slate-100"
                   aria-label="Filter by department"
                 >
-                  <option value="">All Departments</option>
+                  <option value="" className="bg-[#141e35] text-slate-100">All Departments</option>
                   {departments.map((dept) => (
-                    <option key={dept.id} value={dept.id}>{dept.display_name}</option>
+                    <option key={dept.id} value={dept.id} className="bg-[#141e35] text-slate-100">{dept.display_name}</option>
                   ))}
                 </select>
               )}
@@ -671,36 +693,37 @@ export function AdminDashboard() {
               <select
                 value={filters.needs_human_review}
                 onChange={(e) => handleFilterChange('needs_human_review', e.target.value)}
-                className="input w-auto min-w-[160px]"
+                className="input w-auto min-w-[160px] bg-[#141e35] text-slate-100"
                 aria-label="Filter by review status"
               >
-                <option value="">All Review Status</option>
-                <option value="true">Needs Human Review</option>
-                <option value="false">Clear / Verified</option>
+                <option value="" className="bg-[#141e35] text-slate-100">All Review Status</option>
+                <option value="true" className="bg-[#141e35] text-slate-100">Needs Human Review</option>
+                <option value="false" className="bg-[#141e35] text-slate-100">Clear / Verified</option>
               </select>
 
-              <div className="flex items-center gap-1.5 bg-surface-elevated/70 px-2.5 py-1 rounded-md border border-border/50">
-                <ArrowUpDown className="h-3.5 w-3.5 text-text-muted" />
+              <div className="flex items-center gap-1.5 bg-[#141e35] px-3 py-1.5 rounded-lg border border-border-strong text-slate-100">
+                <ArrowUpDown className="h-3.5 w-3.5 text-primary-400" />
                 <span className="text-xs text-text-muted font-medium">Sort:</span>
                 <select
                   value={filters.sort_by}
                   onChange={(e) => handleFilterChange('sort_by', e.target.value)}
-                  className="bg-transparent border-0 text-text-primary text-xs focus:ring-0 focus:outline-none cursor-pointer py-1"
+                  className="bg-[#141e35] text-slate-100 text-xs font-medium border-0 focus:ring-0 focus:outline-none cursor-pointer py-1 pr-2"
                   aria-label="Sort by"
                 >
-                  <option value="priority_score">Priority Score</option>
-                  <option value="upvote_count">Upvotes</option>
-                  <option value="created_at">Date Created</option>
-                  <option value="status">Status</option>
+                  <option value="priority_score" className="bg-[#141e35] text-slate-100">Priority Score</option>
+                  <option value="upvote_count" className="bg-[#141e35] text-slate-100">Upvotes</option>
+                  <option value="created_at" className="bg-[#141e35] text-slate-100">Date Created</option>
+                  <option value="status" className="bg-[#141e35] text-slate-100">Status</option>
                 </select>
+                <span className="text-border-strong">|</span>
                 <select
                   value={filters.sort_order}
                   onChange={(e) => handleFilterChange('sort_order', e.target.value)}
-                  className="bg-transparent border-0 text-text-primary text-xs focus:ring-0 focus:outline-none cursor-pointer py-1 border-l border-border/40 pl-2"
+                  className="bg-[#141e35] text-slate-100 text-xs font-medium border-0 focus:ring-0 focus:outline-none cursor-pointer py-1 pl-1"
                   aria-label="Sort order"
                 >
-                  <option value="desc">Descending</option>
-                  <option value="asc">Ascending</option>
+                  <option value="desc" className="bg-[#141e35] text-slate-100">Descending</option>
+                  <option value="asc" className="bg-[#141e35] text-slate-100">Ascending</option>
                 </select>
               </div>
             </div>
@@ -722,7 +745,7 @@ export function AdminDashboard() {
                 )}
                 {filters.category_id && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-500/15 text-primary-300 border border-primary-500/30">
-                    Category: {categories.find(c => String(c.id) === String(filters.category_id))?.display_name || filters.category_id}
+                    Category: {CITIZEN_CATEGORIES.find(c => String(c.id) === String(filters.category_id))?.display_name || filters.category_id}
                     <button type="button" onClick={() => handleFilterChange('category_id', '')}><X className="h-3 w-3" /></button>
                   </span>
                 )}
