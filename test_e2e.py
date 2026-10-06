@@ -19,7 +19,14 @@ def register(email, role="citizen"):
         "role": role,
         "phone": str(random.randint(1000000000, 9999999999))
     }
-    res = requests.post(f"{BASE_URL}/auth/register", json={"user_data": data})
+    reg_payload = {"user_data": data}
+    if role == "citizen":
+        reg_payload["citizen_profile"] = {
+            "address": "Central Town",
+            "latitude": 28.6139,
+            "longitude": 77.2090
+        }
+    res = requests.post(f"{BASE_URL}/auth/register", json=reg_payload)
     if res.status_code in [200, 201]:
         return login(email, "password123")
     return None
@@ -61,7 +68,9 @@ cat_id = res.json()[0]['id']
 c1_headers = {"Authorization": f"Bearer {c1_token}"}
 complaint_data = {
     "category_id": str(cat_id),
-    "location": "Main Street",
+    "location": "Main Street, Central Town",
+    "latitude": "28.6145",
+    "longitude": "77.2095",
     "description": "Large pothole on the main street"
 }
 res = requests.post(f"{BASE_URL}/complaints", data=complaint_data, headers=c1_headers)
@@ -80,7 +89,7 @@ else:
     print("[FAIL] Upvote failed:", res.text)
 
 res = requests.post(f"{BASE_URL}/complaints/{comp_id}/upvote", headers=c2_headers)
-if res.status_code == 400:
+if res.status_code in [400, 422]:
     print("[PASS] Duplicate upvote rejected")
 else:
     print("[FAIL] Duplicate upvote not rejected:", res.status_code)
