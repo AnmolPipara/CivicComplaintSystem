@@ -300,7 +300,35 @@ def send_complaint_notification(
         if len(SENT_EMAILS_LOG) > 500:
             SENT_EMAILS_LOG.pop(0)
 
-        # If SMTP is configured, send via SMTP
+        # Strategy 1: Resend HTTP API over Port 443 (Bypasses cloud firewall blocks on ports 25/465/587)
+        resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
+        if resend_api_key:
+            try:
+                import httpx
+                from_sender = os.getenv("RESEND_FROM_EMAIL", "JanSewa Civic Support <onboarding@resend.dev>")
+                resend_payload = {
+                    "from": from_sender,
+                    "to": [recipient_email],
+                    "subject": subject,
+                    "html": html_body,
+                    "text": plain_text,
+                }
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        "https://api.resend.com/emails",
+                        headers={"Authorization": f"Bearer {resend_api_key}"},
+                        json=resend_payload,
+                    )
+                    if resp.status_code in (200, 201):
+                        logger.info(f"[EMAIL NOTIFICATION: SENT HTTP API] Event: {event_type} -> To: {recipient_email}")
+                        audit_entry["delivered_via"] = "resend_http"
+                        return True
+                    else:
+                        logger.warning(f"Resend HTTP API responded with {resp.status_code}: {resp.text}")
+            except Exception as http_err:
+                logger.warning(f"HTTP Email API error: {http_err}, falling back to SMTP...")
+
+        # Strategy 2: Standard SMTP (Works on local Docker, VPS, and paid cloud tiers)
         if is_smtp_ready:
             import email.utils
             msg = MIMEMultipart("alternative")
