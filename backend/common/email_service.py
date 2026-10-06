@@ -300,6 +300,21 @@ def send_complaint_notification(
         if len(SENT_EMAILS_LOG) > 500:
             SENT_EMAILS_LOG.pop(0)
 
+        # Database audit log helper
+        def _db_log(status_code_str, err_msg=None):
+            try:
+                from db.session import SessionLocal
+                from sqlalchemy import text
+                _s = SessionLocal()
+                _s.execute(
+                    text("INSERT INTO email_logs (event_type, complaint_id, recipient, status, error_detail, created_at) VALUES (:ev, :cid, :rcp, :st, :err, NOW())"),
+                    {"ev": event_type, "cid": complaint_id, "rcp": recipient_email, "st": status_code_str, "err": str(err_msg or "")[:1000]}
+                )
+                _s.commit()
+                _s.close()
+            except Exception as _dbe:
+                logger.warning(f"Failed to record email log in DB: {_dbe}")
+
         # Strategy 1: Resend HTTP API over Port 443 (Bypasses cloud firewall blocks on ports 25/465/587)
         resend_api_key = (os.getenv("RESEND_API_KEY") or "").strip()
         if resend_api_key:
@@ -322,11 +337,19 @@ def send_complaint_notification(
                     if resp.status_code in (200, 201):
                         logger.info(f"[EMAIL NOTIFICATION: SENT HTTP API] Event: {event_type} -> To: {recipient_email}")
                         audit_entry["delivered_via"] = "resend_http"
+                        _db_log("DELIVERED_RESEND_HTTP", f"Status {resp.status_code}: {resp.text}")
                         return True
                     else:
-                        logger.warning(f"Resend HTTP API responded with {resp.status_code}: {resp.text}")
+                        err_msg = f"Resend HTTP API responded with {resp.status_code}: {resp.text}"
+                        logger.warning(err_msg)
+                        _db_log(f"FAILED_RESEND_{resp.status_code}", err_msg)
             except Exception as http_err:
-                logger.warning(f"HTTP Email API error: {http_err}, falling back to SMTP...")
+                err_msg = f"HTTP Email API error: {http_err}, falling back to SMTP..."
+                logger.warning(err_msg)
+                _db_log("EXCEPTION_RESEND", err_msg)
+        else:
+            logger.info("RESEND_API_KEY not found in environment, using SMTP fallback")
+            _db_log("NO_RESEND_KEY", "RESEND_API_KEY not configured")
 
         # Strategy 2: Standard SMTP (Works on local Docker, VPS, and paid cloud tiers)
         if is_smtp_ready:
@@ -357,14 +380,29 @@ def send_complaint_notification(
                     server.sendmail(envelope_from, [recipient_email], msg.as_string())
 
             logger.info(f"[EMAIL NOTIFICATION: SENT SMTP] Event: {event_type} -> To: {recipient_email}, Subject: {subject}")
+            _db_log("DELIVERED_SMTP", "Sent via SMTP")
             return True
         else:
             # Development / Mock mode
             logger.info(
                 f"[EMAIL NOTIFICATION: MOCK DELIVERED] Event: {event_type} | To: {recipient_email} | Subject: {subject}"
             )
+            _db_log("MOCK_DELIVERED", "Mock mode")
             return True
 
     except Exception as e:
         logger.error(f"Failed to send email notification for complaint #{complaint_id} to {recipient_email}: {e}")
+        try:
+            from db.session import SessionLocal
+            from sqlalchemy import text
+            _s = SessionLocal()
+            _s.execute(
+                text("INSERT INTO email_logs (event_type, complaint_id, recipient, status, error_detail, created_at) VALUES (:ev, :cid, :rcp, :st, :err, NOW())"),
+                {"ev": event_type, "cid": complaint_id, "rcp": recipient_email, "st": "EXCEPTION_GLOBAL", "err": str(e)[:1000]}
+            )
+            _s.commit()
+            _s.close()
+        except Exception:
+            pass
         return False
+
