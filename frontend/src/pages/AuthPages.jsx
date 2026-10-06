@@ -380,6 +380,17 @@ export function RegisterPage() {
                       }}
                     />
                   </div>
+                  {values.latitude && values.longitude && (
+                    <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center justify-between animate-fade-in">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="truncate font-medium">{values.address || `${values.latitude.toFixed(4)}, ${values.longitude.toFixed(4)}`}</span>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400 shrink-0">
+                        {values.latitude.toFixed(3)}, {values.longitude.toFixed(3)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 

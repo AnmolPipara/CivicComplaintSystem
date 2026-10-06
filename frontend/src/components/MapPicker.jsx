@@ -142,9 +142,6 @@ export function MapPicker({ value, onChange }) {
   const [locating, setLocating] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
 
-  // Search box state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
 
   // Sequence ref and abort controller to prevent race conditions across rapid clicks
   const latestClickIdRef = useRef(0);
@@ -267,41 +264,133 @@ export function MapPicker({ value, onChange }) {
     );
   };
 
+  // Search box state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const searchTimeoutRef = useRef(null);
+  const searchContainerRef = useRef(null);
+
+  // Click outside to dismiss suggestions dropdown
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    };
+  }, []);
+
   const handleResetToIndia = () => {
     setFlyTarget(INDIA_CENTER);
     setFlyZoom(INDIA_DEFAULT_ZOOM);
   };
 
-  // Search locality or landmark
+  // Select suggestion from dropdown
+  const handleSelectSuggestion = (item) => {
+    const resultLat = parseFloat(item.lat);
+    const resultLng = parseFloat(item.lon || item.lng);
+    if (isNaN(resultLat) || isNaN(resultLng)) return;
+
+    const latlng = { lat: resultLat, lng: resultLng };
+    const formatted = formatNominatimAddress(item, resultLat, resultLng);
+
+    setPosition(latlng);
+    setDerivedAddress(formatted);
+    setFlyTarget([resultLat, resultLng]);
+    setFlyZoom(16);
+    setSearchQuery(item.name || item.display_name.split(',')[0]);
+    setShowSuggestions(false);
+    setSearchError('');
+
+    if (onChange) {
+      onChange({ lat: resultLat, lng: resultLng, address: formatted });
+    }
+  };
+
+  // Debounced input change for live suggestions
+  const handleSearchInputChange = (e) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+    setSearchError('');
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (val.trim().length >= 2) {
+      searchTimeoutRef.current = setTimeout(async () => {
+        try {
+          const data = await fetchGeocodeLocations(val.trim(), 5);
+          if (Array.isArray(data) && data.length > 0) {
+            setSuggestions(data);
+            setShowSuggestions(true);
+          } else {
+            setSuggestions([]);
+            setShowSuggestions(false);
+          }
+        } catch (err) {
+          setSuggestions([]);
+          setShowSuggestions(false);
+        }
+      }, 300);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  // Search locality or landmark on Go click or Enter
   const handleSearch = async (e) => {
-    if (e) e.preventDefault();
-    if (!searchQuery.trim()) return;
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const q = searchQuery.trim();
+    if (!q) return;
+
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (suggestions.length > 0 && showSuggestions) {
+      handleSelectSuggestion(suggestions[0]);
+      return;
+    }
+
     setSearching(true);
+    setSearchError('');
+    setShowSuggestions(false);
+
     try {
-      const data = await fetchGeocodeLocations(searchQuery.trim(), 1);
+      const data = await fetchGeocodeLocations(q, 5);
 
       if (Array.isArray(data) && data.length > 0) {
-        const resultLat = parseFloat(data[0].lat);
-        const resultLng = parseFloat(data[0].lon || data[0].lng);
-        const latlng = { lat: resultLat, lng: resultLng };
-        const formatted = formatNominatimAddress(data[0], resultLat, resultLng);
-
-        setPosition(latlng);
-        setDerivedAddress(formatted);
-        setFlyTarget([resultLat, resultLng]);
-        setFlyZoom(16);
-
-        if (onChange) {
-          onChange({ lat: resultLat, lng: resultLng, address: formatted });
-        }
+        handleSelectSuggestion(data[0]);
       } else {
-        alert(`No location found matching "${searchQuery}". Please check spelling or click directly on the map.`);
+        setSearchError(`No location found matching "${q}". Click directly on the map.`);
       }
     } catch (err) {
       console.error('Search error:', err);
-      alert(`Could not find "${searchQuery}". Please click directly on the map.`);
+      setSearchError(`Could not find "${q}". Click directly on the map.`);
     } finally {
       setSearching(false);
+    }
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleSearch();
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
     }
   };
 
@@ -321,7 +410,7 @@ export function MapPicker({ value, onChange }) {
       }
     >
       {/* Map Header Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 bg-surface-card border-b border-border text-xs text-text-secondary">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 bg-surface-card border-b border-border text-xs text-text-secondary relative z-20">
         <div className="flex items-center gap-2 font-medium text-text-primary">
           <div className="flex items-center gap-1.5">
             <span className="p-1 rounded-md bg-red-500/15 text-red-400 border border-red-500/20">
@@ -345,26 +434,93 @@ export function MapPicker({ value, onChange }) {
           )}
         </div>
 
-        {/* Search bar inside map toolbar */}
-        <form onSubmit={handleSearch} className="flex items-center gap-1.5 flex-1 max-w-xs">
+        {/* Search bar inside map toolbar with live autocomplete dropdown */}
+        <div ref={searchContainerRef} className="relative flex items-center gap-1.5 flex-1 min-w-[200px] max-w-sm">
           <div className="relative w-full">
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchInputChange}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={() => {
+                if (suggestions.length > 0) setShowSuggestions(true);
+              }}
               placeholder="Search area or landmark..."
-              className="w-full pl-7 pr-3 py-1 bg-surface-elevated text-text-primary border border-border-strong rounded-md text-xs placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary-500/50"
+              className="w-full pl-7 pr-7 py-1 bg-surface-elevated text-text-primary border border-border-strong rounded-md text-xs placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary-500/50"
             />
             <Search className="w-3.5 h-3.5 text-text-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSuggestions([]);
+                  setShowSuggestions(false);
+                  setSearchError('');
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors p-0.5"
+                title="Clear Search"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
           <button
-            type="submit"
+            type="button"
+            onClick={handleSearch}
             disabled={searching || !searchQuery.trim()}
-            className="px-2.5 py-1 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors shadow-glow-primary"
+            className="px-2.5 py-1 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-400 hover:to-primary-500 disabled:opacity-50 text-white rounded-md text-xs font-medium transition-colors shadow-glow-primary shrink-0"
           >
             {searching ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Go'}
           </button>
-        </form>
+
+          {/* Autocomplete Suggestions Dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div
+              onMouseDown={(e) => e.preventDefault()}
+              className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-xl bg-surface-card border border-border-strong shadow-2xl overflow-hidden backdrop-blur-xl divide-y divide-border/60 max-h-56 overflow-y-auto"
+            >
+              <div className="px-2.5 py-1.5 bg-surface-elevated/90 text-[10px] font-semibold text-text-muted uppercase tracking-wider flex items-center justify-between">
+                <span>Matching Locations</span>
+                <span className="text-primary-400">Click to Pin</span>
+              </div>
+              {suggestions.map((item, idx) => (
+                <button
+                  key={item.place_id || idx}
+                  type="button"
+                  onClick={() => handleSelectSuggestion(item)}
+                  className="w-full text-left px-2.5 py-2 hover:bg-surface-hover transition-colors flex items-start gap-2 group"
+                >
+                  <div className="p-1 rounded bg-primary-500/10 text-primary-400 group-hover:bg-primary-500 group-hover:text-white transition-colors shrink-0 mt-0.5">
+                    <MapPin className="w-3 h-3" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-text-primary text-xs group-hover:text-primary-300 transition-colors truncate">
+                      {item.name || item.display_name.split(',')[0]}
+                    </p>
+                    <p className="text-[10px] text-text-muted truncate">
+                      {item.display_name}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Inline Feedback / Error */}
+          {searchError && (
+            <div className="absolute left-0 right-0 top-full mt-1 z-50 px-2.5 py-1.5 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-[11px] flex items-center justify-between shadow-lg">
+              <span className="truncate">{searchError}</span>
+              <button
+                type="button"
+                onClick={() => setSearchError('')}
+                className="p-0.5 hover:text-red-300 shrink-0 ml-1"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-1.5">
           <button
